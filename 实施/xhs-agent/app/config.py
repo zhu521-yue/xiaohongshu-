@@ -23,6 +23,8 @@ class Settings:
     account_stage:str
     run_store_backend: str
     run_db_path: str
+    memory_store_backend: str
+    memory_db_path: str
 
 
 COLD_START_RULES = {
@@ -69,6 +71,8 @@ def load_settings() -> Settings:
         account_stage=os.getenv("ACCOUNT_STAGE", "cold_start"),
         run_store_backend=os.getenv("XHS_AGENT_RUN_STORE", "json").strip().lower() or "json",
         run_db_path=os.getenv("XHS_AGENT_RUN_DB_PATH", "data/xhs_agent.sqlite3"),
+        memory_store_backend=os.getenv("XHS_AGENT_MEMORY_STORE", "json").strip().lower() or "json",
+        memory_db_path=os.getenv("XHS_AGENT_MEMORY_DB_PATH", "data/xhs_agent.sqlite3"),
     )
 
 def get_stage_rules(account_stage:str)->dict:

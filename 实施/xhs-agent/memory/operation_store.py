@@ -8,11 +8,14 @@ project upgrades to GraphRAG.
 from __future__ import annotations
 
 import hashlib
+import json
+import sqlite3
 import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from app.config import PROJECT_ROOT, load_settings
 from app.json_store import read_json_file, write_json_atomic
 from app.rules import load_performance_weights
 
@@ -31,6 +34,189 @@ EMPTY_HISTORY = {
 
 PERFORMANCE_WEIGHTS = load_performance_weights()
 HISTORY_LOCK = threading.RLock()
+MEMORY_BACKEND = None
+
+
+def _resolve_project_path(path_value: str | Path) -> Path:
+    path = Path(path_value)
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _json_loads(value: str | None, fallback: Any) -> Any:
+    if not value:
+        return fallback
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return fallback
+
+
+def _normalize_history(data: Dict[str, Any] | Any) -> Dict[str, Any]:
+    if not isinstance(data, dict):
+        return dict(EMPTY_HISTORY)
+
+    records = data.get("records")
+    if not isinstance(records, list):
+        records = []
+
+    return {
+        "version": data.get("version") or HISTORY_VERSION,
+        "updated_at": data.get("updated_at"),
+        "records": records,
+    }
+
+
+class JsonOperationMemoryBackend:
+    def __init__(self, path: str | Path = HISTORY_PATH) -> None:
+        self.path = Path(path)
+
+    def load_history(self) -> Dict[str, Any]:
+        data = read_json_file(self.path, default=EMPTY_HISTORY, expected_type=dict)
+        return _normalize_history(data)
+
+    def save_history(self, history: Dict[str, Any]) -> Path:
+        return write_json_atomic(self.path, history)
+
+
+class SQLiteOperationMemoryBackend:
+    def __init__(self, db_path: str | Path) -> None:
+        self.path = Path(db_path)
+        self._lock = threading.RLock()
+        self._init_db()
+
+    def load_history(self) -> Dict[str, Any]:
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT record_json FROM operation_records ORDER BY created_at ASC"
+            ).fetchall()
+            updated_at = connection.execute(
+                "SELECT MAX(updated_at) AS updated_at FROM operation_records"
+            ).fetchone()["updated_at"]
+
+        records = []
+        for row in rows:
+            record = _json_loads(row["record_json"], {})
+            if isinstance(record, dict):
+                records.append(record)
+
+        return {
+            "version": HISTORY_VERSION,
+            "updated_at": updated_at,
+            "records": records,
+        }
+
+    def save_history(self, history: Dict[str, Any]) -> Path:
+        records = history.get("records") or []
+        with self._lock, self._connect() as connection:
+            for record in records:
+                if isinstance(record, dict):
+                    self._upsert_record(connection, record)
+        return self.path
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.path, timeout=30)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA busy_timeout = 5000")
+        return connection
+
+    def _init_db(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS operation_records (
+                    record_id TEXT PRIMARY KEY,
+                    post_id TEXT UNIQUE,
+                    topic TEXT NOT NULL,
+                    target_user TEXT,
+                    content_type TEXT,
+                    content_format TEXT,
+                    status TEXT,
+                    publish_status TEXT,
+                    performance_score INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    record_json TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_operation_records_topic ON operation_records(topic)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_operation_records_updated_at ON operation_records(updated_at)"
+            )
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_operation_records_performance_score ON operation_records(performance_score)"
+            )
+
+    def _upsert_record(self, connection: sqlite3.Connection, record: Dict[str, Any]) -> None:
+        record_id = str(record.get("record_id") or "").strip()
+        if not record_id:
+            return
+
+        row = {
+            "record_id": record_id,
+            "post_id": record.get("post_id") or None,
+            "topic": str(record.get("topic") or ""),
+            "target_user": record.get("target_user"),
+            "content_type": record.get("content_type"),
+            "content_format": record.get("content_format"),
+            "status": record.get("status"),
+            "publish_status": record.get("publish_status"),
+            "performance_score": performance_score(record.get("performance_data")),
+            "created_at": str(record.get("created_at") or _now_iso()),
+            "updated_at": str(record.get("updated_at") or record.get("created_at") or _now_iso()),
+            "record_json": _json_dumps(record),
+        }
+        connection.execute(
+            """
+            INSERT INTO operation_records (
+                record_id, post_id, topic, target_user, content_type, content_format,
+                status, publish_status, performance_score, created_at, updated_at, record_json
+            )
+            VALUES (
+                :record_id, :post_id, :topic, :target_user, :content_type, :content_format,
+                :status, :publish_status, :performance_score, :created_at, :updated_at, :record_json
+            )
+            ON CONFLICT(record_id) DO UPDATE SET
+                post_id = excluded.post_id,
+                topic = excluded.topic,
+                target_user = excluded.target_user,
+                content_type = excluded.content_type,
+                content_format = excluded.content_format,
+                status = excluded.status,
+                publish_status = excluded.publish_status,
+                performance_score = excluded.performance_score,
+                created_at = excluded.created_at,
+                updated_at = excluded.updated_at,
+                record_json = excluded.record_json
+            """,
+            row,
+        )
+
+
+def _memory_backend():
+    global MEMORY_BACKEND
+    if MEMORY_BACKEND is None:
+        settings = load_settings()
+        if settings.memory_store_backend == "sqlite":
+            MEMORY_BACKEND = SQLiteOperationMemoryBackend(
+                _resolve_project_path(settings.memory_db_path)
+            )
+        else:
+            MEMORY_BACKEND = JsonOperationMemoryBackend(HISTORY_PATH)
+    return MEMORY_BACKEND
+
+
+def operation_memory_path(path: Path | None = None) -> Path:
+    if path is not None:
+        return Path(path)
+    return _memory_backend().path
 
 
 def _now_iso() -> str:
@@ -61,30 +247,21 @@ def has_performance_data(performance_data: Dict[str, Any] | None) -> bool:
     return any(_safe_int(performance_data.get(name)) > 0 for name in PERFORMANCE_WEIGHTS)
 
 
-def load_history(path: Path = HISTORY_PATH) -> Dict[str, Any]:
+def load_history(path: Path | None = None) -> Dict[str, Any]:
     with HISTORY_LOCK:
-        data = read_json_file(path, default=EMPTY_HISTORY, expected_type=dict)
-
-    if not isinstance(data, dict):
-        return dict(EMPTY_HISTORY)
-
-    records = data.get("records")
-    if not isinstance(records, list):
-        records = []
-
-    return {
-        "version": data.get("version") or HISTORY_VERSION,
-        "updated_at": data.get("updated_at"),
-        "records": records,
-    }
+        if path is not None:
+            return JsonOperationMemoryBackend(path).load_history()
+        return _memory_backend().load_history()
 
 
-def save_history(history: Dict[str, Any], path: Path = HISTORY_PATH) -> Path:
+def save_history(history: Dict[str, Any], path: Path | None = None) -> Path:
     with HISTORY_LOCK:
         history["version"] = HISTORY_VERSION
         history["updated_at"] = _now_iso()
         history.setdefault("records", [])
-        return write_json_atomic(path, history)
+        if path is not None:
+            return JsonOperationMemoryBackend(path).save_history(history)
+        return _memory_backend().save_history(history)
 
 
 def _record_id_from_post_id(post_id: str) -> str:
@@ -171,7 +348,7 @@ def record_from_state(state: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def upsert_record_from_state(state: Dict[str, Any], path: Path = HISTORY_PATH) -> Dict[str, Any]:
+def upsert_record_from_state(state: Dict[str, Any], path: Path | None = None) -> Dict[str, Any]:
     with HISTORY_LOCK:
         history = load_history(path)
         records = history.setdefault("records", [])
@@ -309,7 +486,7 @@ def _record_has_cross_domain_health_pollution(topic: str, record: Dict[str, Any]
     return any(pattern in haystack for pattern in CROSS_DOMAIN_HEALTH_PATTERNS)
 
 
-def find_relevant_records(topic: str, limit: int = 5, path: Path = HISTORY_PATH) -> List[Dict[str, Any]]:
+def find_relevant_records(topic: str, limit: int = 5, path: Path | None = None) -> List[Dict[str, Any]]:
     history = load_history(path)
     scored_records = []
     for record in history.get("records") or []:
@@ -360,7 +537,7 @@ def successful_patterns_from_records(records: List[Dict[str, Any]], limit: int =
     return patterns
 
 
-def find_successful_patterns(topic: str, limit: int = 3, path: Path = HISTORY_PATH) -> List[Dict[str, Any]]:
+def find_successful_patterns(topic: str, limit: int = 3, path: Path | None = None) -> List[Dict[str, Any]]:
     records = find_relevant_records(topic, limit=20, path=path)
     return successful_patterns_from_records(records, limit=limit)
 
@@ -426,7 +603,7 @@ def update_record_performance(
     performance_data: Dict[str, Any],
     published_url: str | None = None,
     notes: str | None = None,
-    path: Path = HISTORY_PATH,
+    path: Path | None = None,
 ) -> Dict[str, Any]:
     with HISTORY_LOCK:
         history = load_history(path)

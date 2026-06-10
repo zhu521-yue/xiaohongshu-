@@ -21,7 +21,7 @@ from app.config import load_settings
 from app.graph import run_langgraph, run_local_graph
 from app.run_queue import LocalRunQueue
 from app.run_store import LocalRunStore, SQLiteRunStore
-from memory.operation_store import HISTORY_PATH, load_history, update_record_performance
+from memory.operation_store import load_history, operation_memory_path, update_record_performance
 from nodes.memory_node import write_operation_memory
 from nodes.publish_node import publish_or_schedule
 from nodes.review_node import review_performance
@@ -404,7 +404,7 @@ def reject_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str, 
             "publish_status": "rejected",
             "post_id": None,
             "operation_memory_written": False,
-            "operation_memory_path": str(HISTORY_PATH),
+            "operation_memory_path": str(operation_memory_path()),
             "review_summary": f"主题「{topic}」已被人工审核驳回，草稿未保存。",
             "next_action": "根据人工反馈修改主题、结构或合规表达后重新生成。",
             "review_generation": {
@@ -521,7 +521,7 @@ def list_memory_records(limit: int = 20) -> dict[str, Any]:
     ]
     records = records[-limit:]
     return {
-        "memory_path": str(HISTORY_PATH),
+        "memory_path": str(operation_memory_path()),
         "records": [_compact_memory_record(record) for record in records],
     }
 
@@ -545,7 +545,7 @@ def record_performance(payload: dict[str, Any]) -> dict[str, Any]:
         notes=str(payload.get("notes") or "").strip() or None,
     )
     return {
-        "memory_path": str(HISTORY_PATH),
+        "memory_path": str(operation_memory_path()),
         "updated_record": _compact_memory_record(record),
     }
 

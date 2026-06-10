@@ -12,8 +12,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from memory.operation_store import (  # noqa: E402
-    HISTORY_PATH,
     load_history,
+    operation_memory_path,
     update_record_performance,
 )
 
@@ -33,7 +33,7 @@ def list_recent_records(limit: int) -> int:
 
     _print_json(
         {
-            "memory_path": str(HISTORY_PATH),
+            "memory_path": str(operation_memory_path()),
             "records": [
                 {
                     "record_id": record.get("record_id"),
@@ -97,7 +97,7 @@ def main() -> int:
 
     _print_json(
         {
-            "memory_path": str(HISTORY_PATH),
+            "memory_path": str(operation_memory_path()),
             "updated_record": {
                 "record_id": record.get("record_id"),
                 "topic": record.get("topic"),

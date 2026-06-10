@@ -1,5 +1,43 @@
 # 当前工程进度
 
+## 2026-06-10 M15 运营记忆 SQLite 后端
+
+本轮目标是在保留 `memory/operation_history.json` 默认行为的前提下，给运营记忆增加 SQLite 可切换后端，为后续数据库化和 API/worker 拆分继续铺路。
+
+已完成：
+- 新增 `memory.operation_store` 内部后端边界：
+  - `JsonOperationMemoryBackend`
+  - `SQLiteOperationMemoryBackend`
+  - `_memory_backend()`
+  - `operation_memory_path()`
+- `load_history()`、`save_history()`、`upsert_record_from_state()`、`find_relevant_records()`、`find_successful_patterns()`、`update_record_performance()` 保持公开函数 API 不变，默认调用会根据环境变量选择后端。
+- 新增 SQLite 表 `operation_records`，完整记录保存在 `record_json`，同时保留 `topic`、`post_id`、`content_type`、`performance_score`、`created_at`、`updated_at` 等索引字段。
+- 新增环境变量：
+  - `XHS_AGENT_MEMORY_STORE=json|sqlite`
+  - `XHS_AGENT_MEMORY_DB_PATH=data/xhs_agent.sqlite3`
+- 更新 `nodes/memory_node.py`、`app/api.py`、`scripts/record_performance.py`，展示当前选中后端的记忆路径。
+- 新增 `tests/test_operation_store_sqlite.py`，覆盖 SQLite 运营记忆写入、更新、检索、成功模式提取、表现录入和跨领域健康污染过滤。
+
+已验证：
+- `python -m pytest -q` 通过，当前 14 个测试全部通过。
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+- 使用临时 SQLite DB 的运营记忆烟测通过：
+  - 写入一条 operation record。
+  - 能按主题检索到相关记录。
+  - 能录入表现数据并更新为 `performance_recorded`。
+- 临时测试 DB 已清理。
+
+当前阶段判断：
+- M14 RunStore SQLite 可切换后端已完成。
+- M15 Operation Memory SQLite 可切换后端已完成。
+- 默认行为仍是 JSON，只有显式设置环境变量时才启用 SQLite。
+- 还没有做历史 JSON 自动迁移；后续如需要，应单独实现迁移脚本并做数据校验。
+
+建议下一步：
+1. M16：设计并接入真正的外部队列后端，优先评估 Redis/RQ 与现有 `LocalRunQueue` 的接口差异。
+2. M17：拆分 API 进程和 worker 进程，让耗时采集/LLM 任务从 API 服务中移出。
+3. M18：补数据库迁移脚本，把 `data/api_runs/*.json` 和 `memory/operation_history.json` 可控迁移到 SQLite。
+
 ## 2026-06-10 M9 配置治理
 
 本轮目标是修正节点里业务规则和提示词硬编码的问题，让后续迭代优先改配置，而不是反复进入节点代码。

@@ -6,9 +6,9 @@ be replaced by GraphRAG without changing the rest of the graph.
 
 from app.state import XHSState
 from memory.operation_store import (
-    HISTORY_PATH,
     find_relevant_records,
     find_successful_patterns,
+    operation_memory_path,
     upsert_record_from_state,
 )
 
@@ -30,7 +30,7 @@ def write_operation_memory(state: XHSState) -> dict:
     if state.get("publish_status") != "success":
         return {
             "next_action": next_action,
-            "operation_memory_path": str(HISTORY_PATH),
+            "operation_memory_path": str(operation_memory_path()),
             "operation_memory_written": False,
         }
 
@@ -39,6 +39,6 @@ def write_operation_memory(state: XHSState) -> dict:
     return {
         "next_action": next_action,
         "operation_record_id": record.get("record_id"),
-        "operation_memory_path": str(HISTORY_PATH),
+        "operation_memory_path": str(operation_memory_path()),
         "operation_memory_written": True,
     }
