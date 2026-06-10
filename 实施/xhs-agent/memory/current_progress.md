@@ -1,5 +1,37 @@
 # 当前工程进度
 
+## 2026-06-11 M16a SQLite 持久化运行队列与 worker 入口
+
+本轮目标是在不引入 Redis/RQ/Celery 的前提下，把运行队列从 API 进程内存迁移到 SQLite，并新增独立 worker 脚本，为后续 API/worker 进程拆分铺路。
+
+已完成：
+- 新增 `SQLiteRunQueue`，通过 `run_queue_jobs` 表持久化队列任务。
+- 保留 `LocalRunQueue` 默认行为，只有设置 `XHS_AGENT_RUN_QUEUE=sqlite` 时启用 SQLite 队列。
+- API 提交流程仍创建 `queued` run，再写入队列；SQLite 队列模式下 API 不启动后端 worker 线程。
+- 新增 `scripts/run_worker.py`，支持 worker 从 SQLite 队列领取任务并调用现有 `_execute_run(run_id)`。
+- 队列支持入队去重、领取锁、成功完成、失败重试、终态失败和过期锁重新领取。
+- `.env.example` 新增 SQLite 队列相关配置。
+- 新增 `pytest.ini`，将 pytest 收集范围固定到 `tests`，并把临时目录放到已忽略的 `data/pytest_tmp`，避免 Windows 用户临时目录权限残留影响测试。
+
+已验证：
+- SQLite 队列单元测试通过。
+- API 队列后端选择测试通过。
+- worker 单步执行测试通过。
+- SQLite 队列 + SQLite run store + mock local graph 集成测试通过。
+- `python -m pytest -q` 通过。
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+
+当前阶段判断：
+- API 和 worker 已具备分进程运行基础。
+- SQLite 队列适合当前本地和轻量部署阶段。
+- Redis/RQ/Celery、部署守护、鉴权、取消任务和前端队列管理仍不在本轮范围内。
+- 当前环境没有安装 `langgraph`，所以 M16a 的集成烟测使用已有 `engine=local` 验证队列/worker 链路；真实 LangGraph 链路需在安装依赖后另行验证。
+
+建议下一步：
+1. M16b：补启动说明和自测命令，明确 API 进程与 worker 进程如何分别启动。
+2. M17：进入生产部署准备，补日志、进程守护和基础鉴权。
+3. M18：在需要更高并发时再替换为 Redis/RQ 或 Celery。
+
 ## 2026-06-10 M15 运营记忆 SQLite 后端
 
 本轮目标是在保留 `memory/operation_history.json` 默认行为的前提下，给运营记忆增加 SQLite 可切换后端，为后续数据库化和 API/worker 拆分继续铺路。
