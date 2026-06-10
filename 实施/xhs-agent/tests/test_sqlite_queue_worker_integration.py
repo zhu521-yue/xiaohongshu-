@@ -33,7 +33,7 @@ def test_sqlite_queue_worker_processes_submitted_mock_run(
             "topic": "小红书新手选题方法",
             "target_user": "内容创作新手",
             "format": "image_text",
-            "engine": "local",
+            "engine": "langgraph",
             "approve": False,
             "collect_limit": 3,
         }

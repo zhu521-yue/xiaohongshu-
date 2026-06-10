@@ -17,7 +17,7 @@
 - SQLite 队列单元测试通过。
 - API 队列后端选择测试通过。
 - worker 单步执行测试通过。
-- SQLite 队列 + SQLite run store + mock local graph 集成测试通过。
+- SQLite 队列 + SQLite run store + mock LangGraph 集成测试通过。
 - `python -m pytest -q` 通过。
 - `python -m compileall app nodes routers platforms memory scripts llm` 通过。
 
@@ -25,7 +25,7 @@
 - API 和 worker 已具备分进程运行基础。
 - SQLite 队列适合当前本地和轻量部署阶段。
 - Redis/RQ/Celery、部署守护、鉴权、取消任务和前端队列管理仍不在本轮范围内。
-- 当前环境没有安装 `langgraph`，所以 M16a 的集成烟测使用已有 `engine=local` 验证队列/worker 链路；真实 LangGraph 链路需在安装依赖后另行验证。
+- 当前环境已验证 `langgraph` 可用，M16a 集成烟测使用 `engine=langgraph` 验证队列/worker 链路。
 
 建议下一步：
 1. M16b：补启动说明和自测命令，明确 API 进程与 worker 进程如何分别启动。
