@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 
 from app.config import load_settings
 from app.graph import run_langgraph, run_local_graph
-from app.run_queue import LocalRunQueue
+from app.run_queue import LocalRunQueue, SQLiteRunQueue
 from app.run_store import LocalRunStore, SQLiteRunStore
 from memory.operation_store import load_history, operation_memory_path, update_record_performance
 from nodes.memory_node import write_operation_memory
@@ -31,7 +31,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUNS_DIR = PROJECT_ROOT / "data" / "api_runs"
 STATIC_DIR = PROJECT_ROOT / "app" / "static"
 RUN_STORE: LocalRunStore | SQLiteRunStore | None = None
-RUN_QUEUE_SERVICE: LocalRunQueue | None = None
+RUN_QUEUE_SERVICE: LocalRunQueue | SQLiteRunQueue | None = None
 
 
 def _now_iso() -> str:
@@ -72,14 +72,23 @@ def _local_worker_count() -> int:
     return max(1, _int(os.getenv("XHS_AGENT_LOCAL_WORKERS"), default=1))
 
 
-def _run_queue_service() -> LocalRunQueue:
+def _run_queue_service() -> LocalRunQueue | SQLiteRunQueue:
     global RUN_QUEUE_SERVICE
     if RUN_QUEUE_SERVICE is None:
-        RUN_QUEUE_SERVICE = LocalRunQueue(
-            execute_run=_execute_run,
-            list_runs=_list_runs,
-            worker_count=_local_worker_count(),
-        )
+        settings = load_settings()
+        if settings.run_queue_backend == "sqlite":
+            RUN_QUEUE_SERVICE = SQLiteRunQueue(
+                db_path=_resolve_project_path(settings.queue_db_path),
+                list_runs=_list_runs,
+                max_attempts=settings.queue_max_attempts,
+                lock_timeout_seconds=settings.queue_lock_timeout_seconds,
+            )
+        else:
+            RUN_QUEUE_SERVICE = LocalRunQueue(
+                execute_run=_execute_run,
+                list_runs=_list_runs,
+                worker_count=_local_worker_count(),
+            )
     return RUN_QUEUE_SERVICE
 
 
