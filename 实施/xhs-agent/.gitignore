@@ -1,0 +1,9 @@
+.env
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+output/
+data/
+memory/operation_history.json
+vendor/Spider_XHS/node_modules/

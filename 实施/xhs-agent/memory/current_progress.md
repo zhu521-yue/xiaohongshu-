@@ -1,0 +1,364 @@
+# 当前工程进度
+
+## 2026-06-10 M9 配置治理
+
+本轮目标是修正节点里业务规则和提示词硬编码的问题，让后续迭代优先改配置，而不是反复进入节点代码。
+
+已完成：
+- 新增 `app/rules.py`，统一读取 `config/*.json` 业务规则。
+- 新增 `config/content_structures.json`，承载内容结构、图文页规划、标题模板等规则。
+- 新增 `config/compliance_rules.json`，承载绝对词、敏感主题、免责声明词、安全提示和承诺类禁用词。
+- 新增 `config/strategy_rules.json`，承载内容策略判断关键词和默认策略。
+- 新增 `config/comment_insight_rules.json`，承载评论痛点归类规则。
+- 新增 `config/text_replacements.json`，承载风险词替换规则。
+- 新增 `config/performance_rules.json`，承载表现分权重。
+- 新增 `config/llm_prompts.json`，承载图文生成、视频脚本生成、运营复盘的系统提示词、用户提示词模板和 expected JSON。
+- 新增 `llm/prompts.py`，负责把外置提示词模板渲染成 `ChatMessage`。
+- 改造 `content_node.py`、`video_node.py`、`review_node.py`，节点只组织业务输入，不再直接拼大段 LLM prompt。
+- 改造 `compliance_node.py`、`strategy_node.py`、`pattern_utils.py`、`comment_analysis.py`、`operation_store.py`、`review_node.py`，规则来源改为配置文件。
+- 修复 `publish_node.py` 中输出目录依赖当前工作目录的问题，改为项目根目录下的 `output/markdown_exports`。
+- 修复 `publish_node.py` 中 `state.get("body" or "")` 的错误写法。
+
+已验证：
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+- `llm.prompts.build_json_prompt()` 能正确加载并渲染外置提示词。
+- mock 模式下图文 LangGraph 主流程通过。
+- mock 模式下视频 LangGraph 主流程通过。
+
+当前阶段判断：
+- M9A 业务规则配置化：完成。
+- M9B LLM 提示词配置化：完成基础版。
+- 当前仍不是生产部署完成态，下一阶段应处理任务状态、人审流程、存储可靠性和部署安全。
+
+建议下一步：
+1. M10：把现在的 `--approve` 假人工确认，升级为真实的前端人审状态流。
+2. M11：把 JSON 文件读写加锁、原子写入和异常恢复做扎实。
+3. M12：补前端失败任务展示、运行记录详情、表现录入后的记忆刷新。
+4. M13：整理部署配置，包括生产 `.env`、日志、进程守护、启动脚本和反向代理。
+
+## 2026-06-10 M10 人工审核入口
+
+本轮目标是让工作台支持“先生成待审草稿，再人工审核通过或驳回”，不再只能靠提交任务时的 `approve` 参数决定是否保存。
+
+已完成：
+- `app/api.py` 的 run 记录开始保存完整 `state`，用于后续审核动作继续执行发布、复盘和写运营记忆。
+- 新增 `approve_run(run_id, payload)`：
+  - 只允许对已经生成成功的 run 操作。
+  - 高合规风险内容不能直接通过。
+  - 审核通过后调用 `publish_or_schedule()` 保存 Markdown。
+  - 随后调用 `review_performance()` 生成复盘摘要。
+  - 最后调用 `write_operation_memory()` 写入运营记忆。
+- 新增 `reject_run(run_id, payload)`：
+  - 审核驳回后设置 `publish_status=rejected`。
+  - 不保存 Markdown。
+  - 不写运营记忆。
+- 新增 HTTP 接口：
+  - `POST /runs/{run_id}/approve`
+  - `POST /runs/{run_id}/reject`
+- 前端工作台新增审核区：
+  - `审核通过并保存`
+  - `审核不通过`
+  - 显示待审、已保存、已驳回、高风险不可直接通过等状态。
+
+已验证：
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+- `node --check app/static/app.js` 通过。
+- 函数级审核通过链路通过：`pending -> success`，并触发运营记忆字段。
+- 函数级审核驳回链路通过：`pending -> rejected`，不写运营记忆。
+- 临时 mock API 服务下，桌面端 Playwright 工作台提交链路通过，无 console error。
+- 临时 mock API 服务下，移动端 Playwright 工作台检查通过，无 console error。
+
+当前阶段判断：
+- M9 配置治理：完成基础版。
+- M10 人工审核入口：完成基础版。
+- 当前人审仍是 API 层继续执行，不是 LangGraph 原生 interrupt/resume；这对当前 MVP 足够，但生产级人审可以后续再升级。
+
+建议下一步：
+1. M11：增强 JSON 存储可靠性，重点是原子写入、损坏备份、运行记录和运营记忆的文件锁。
+2. M12：优化前端运行记录详情、失败任务展示、审核反馈输入框、表现录入后的记忆刷新体验。
+3. M13：进入部署准备，整理 `.env.example`、启动脚本、日志落盘、进程守护和反向代理。
+
+## 2026-06-10 M11 本地存储可靠性
+
+本轮目标是降低 JSON 文件在断电、进程中断或并发写入时损坏的风险。
+
+已完成：
+- 新增 `app/json_store.py`：
+  - `write_json_atomic()`：先写同目录临时文件，刷新到磁盘，再用 `os.replace()` 原子替换目标文件。
+  - `write_text_atomic()`：给 Markdown 等文本产物复用同样的原子写入机制。
+  - `read_json_file()`：读取 JSON 时校验根类型。
+  - `move_corrupt_file()`：发现损坏 JSON 或根类型不符合预期时，移入同目录 `corrupt/` 备份目录。
+- 改造 `app/api.py`：
+  - `data/api_runs/*.json` 改为原子写入。
+  - 读取 run JSON 时发现损坏文件会隔离到 `data/api_runs/corrupt/`。
+- 改造 `memory/operation_store.py`：
+  - `operation_history.json` 改为原子写入。
+  - 新增 `HISTORY_LOCK`，保护运营记忆的读改写流程。
+  - 损坏的运营记忆文件会隔离到 `memory/corrupt/`。
+- 改造 `platforms/spider_xhs_collector.py`：
+  - 采集快照 `data/collector_runs/*.json` 改为原子写入。
+- 改造 `nodes/publish_node.py`：
+  - Markdown 草稿保存改为原子写入。
+
+已验证：
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+- 存储工具正常写入、读取、损坏 JSON 自动隔离通过。
+- 临时 API run 目录下，mock LangGraph run 保存和读取通过。
+- 临时 operation history 文件下，新增记录和录入表现数据通过。
+- 临时 mock API 服务下，工作台提交链路通过，无 console error。
+
+当前阶段判断：
+- M11 本地存储可靠性：完成基础版。
+- 当前锁是单进程内线程锁，适合现在的单 API 进程和单 worker 队列。
+- 如果未来多进程部署，需要升级到数据库、Redis 队列，或引入跨进程文件锁。
+
+建议下一步：
+1. M12：优化前端可用性，重点是失败任务详情、审核反馈输入框、运行记录详情、表现录入后的自动刷新。
+2. M13：部署准备，补 `.env.example`、启动脚本、日志落盘和进程守护。
+
+## 2026-06-10 M14 高并发改造第一步：队列和存储边界拆分
+
+本轮目标不是立刻接入 Redis/PostgreSQL，而是先把 `app/api.py` 中耦合在一起的 HTTP、run 存储、队列、worker 逻辑拆出可替换边界。这样后续替换成 Redis 队列、Celery worker、PostgreSQL 存储时，不需要重写整个 API 层。
+
+已完成：
+- 新增 `app/run_store.py`：
+  - `LocalRunStore` 封装 `data/api_runs/*.json` 的保存、读取、列表查询。
+  - 当前仍使用本地 JSON 文件，但 API 层不再直接关心文件读写细节。
+  - 后续可替换为 `PostgresRunStore`。
+- 新增 `app/run_queue.py`：
+  - `LocalRunQueue` 封装入队、pending 恢复、worker 启动、队列状态。
+  - 当前仍是本进程内队列，但 API 层不再直接持有 `Queue`、worker 线程和去重集合。
+  - 后续可替换为 Redis/Celery/RQ。
+- 改造 `app/api.py`：
+  - `_save_run()`、`_load_run()`、`_list_runs()` 改为委托 `LocalRunStore`。
+  - `_enqueue_run()`、`_recover_pending_runs()`、`queue_status()` 改为委托 `LocalRunQueue`。
+  - 移除 API 层直接管理 `RUN_QUEUE`、`QUEUE_LOCK`、`ENQUEUED_RUN_IDS`、`WORKER_STARTED` 的逻辑。
+- 新增环境变量：
+  - `XHS_AGENT_LOCAL_WORKERS`
+  - 默认值为 `1`。
+  - 本地模式可临时调高 worker 数，但这仍不是最终生产级高并发方案。
+- `GET /queue` 返回中新增：
+  - `worker_backend`
+  - `worker_count`
+
+已验证：
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+- 函数级 mock run 保存和读取通过。
+- `queue_status()` 正常返回队列状态。
+- `XHS_AGENT_LOCAL_WORKERS=3` 时，`queue_status()` 能看到 `worker_count=3`。
+- 临时 mock API 服务下，工作台提交链路通过，无 console error。
+
+当前阶段判断：
+- 高并发改造的第一步完成：边界拆出来了。
+- 当前仍不是生产级高并发，因为任务状态仍在本地 JSON，队列仍在单进程内存。
+- 下一步必须进入真正的外部基础设施：Redis 队列和 PostgreSQL 存储。
+
+建议下一步：
+1. M15：设计并落地数据库模型，先用 SQLite/PostgreSQL 兼容方式替换 run 存储。
+2. M16：引入 Redis 队列或 Celery/RQ，替换 `LocalRunQueue`。
+3. M17：把 API 进程和 worker 进程拆开，支持多 worker 横向扩容。
+
+## 2026-06-10 M14.5 评论洞察泛化修复
+
+本轮目标是修复真实测试中暴露出的内容质量问题：主题为“小红书新手选题方法”时，评论洞察错误输出“对护理方法存在疑问，担心建议不靠谱”。
+
+问题原因：
+- 原 `config/comment_insight_rules.json` 中的 6 条规则全部来自“宝宝湿疹护理”场景。
+- 规则关键词中包含“真的可以”“步骤”“流程”“靠谱吗”等通用词，导致非健康主题也被归到护理痛点。
+- 采集评论中存在大量互粉、数字、引流、炫耀收入类噪声，影响痛点提取。
+
+已完成：
+- 重构 `config/comment_insight_rules.json`：
+  - 新增 `generic_insight_rules`，用于通用主题。
+  - 新增 `domain_rule_groups`，只有主题命中领域关键词时才启用专用规则。
+  - 将宝宝湿疹相关规则放入 `baby_skin_care` 领域组。
+  - 新增 `noise_comment_keywords` 和 `low_value_comments`。
+- 改造 `platforms/comment_analysis.py`：
+  - 根据 topic 选择通用规则和领域专用规则。
+  - 支持 `pain_template`，让痛点文案绑定当前主题。
+  - 增加评论噪声过滤。
+  - 避免同一条评论重复作为多条 insight 的证据。
+  - 无匹配时仍回退到主题级通用痛点。
+- 改造 `nodes/content_node.py`：
+  - 非健康主题的兜底模板不再固定输出“不替代诊断”。
+  - 只有敏感健康上下文才使用诊断边界提示。
+
+已验证：
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+- “小红书新手选题方法”样本输出：
+  - 对主题是否真实可行存在怀疑，需要可信案例和边界说明。
+  - 不知道从哪里开始，需要清晰的入门步骤。
+  - 担心投入成本或试错风险，需要避坑提醒。
+- “宝宝湿疹护理”样本仍能输出：
+  - 分不清湿疹、热疹、过敏等相似皮肤问题。
+  - 担心是否需要用药、擦药或就医处理。
+- 使用真实 run `run_03aaaf930533` 的 raw_comments 回放后，不再出现护理痛点污染。
+- mock 图文主流程通过。
+- 非健康主题兜底正文不再包含“不替代诊断”。
+
+当前阶段判断：
+- 评论洞察从“单领域规则”升级为“通用规则 + 领域规则”基础版。
+- 这仍然是规则系统，不是最终智能分类；后续可以引入 LLM/embedding 做评论聚类和主题适配。
+
+建议下一步：
+1. 用真实采集再跑一次“小红书新手选题方法”，确认新洞察能带动生成内容变好。
+2. 继续补通用评论洞察规则，尤其是学习、职场、电商、母婴、内容创作等高频领域。
+3. 稳定后再回到高并发主线：数据库模型和 Redis 队列。
+
+## 2026-06-10 M14.6 内容记忆污染修复
+
+本轮目标是修复真实 API 测试中继续出现的跨领域内容污染：主题为“小红书新手选题方法”时，结果里仍然出现“对护理方法存在疑问，担心建议不靠谱”等健康护理类痛点。
+
+问题判断：
+- 当前代码层面的评论洞察规则已经修复，但正在运行的 API 服务不会热更新，需要重启后才会加载新代码。
+- `memory/operation_history.json` 中存在历史脏记录，旧的“小红书新手选题方法”记录里已经写入了护理类痛点和标题。
+- 这些历史记录会通过 `retrieved_memory` 和 `successful_patterns` 被重新喂给生成链路，导致新内容继续被旧记忆污染。
+
+已完成：
+- 在 `memory/operation_store.py` 增加跨领域健康污染过滤。
+  - 非健康主题检索历史记忆时，如果记录中含有湿疹、热疹、擦药、用药、就医、诊断、护理方法等健康领域残留，会跳过该记录。
+  - 健康主题本身不受影响，例如“宝宝湿疹护理”仍然可以读取健康护理相关历史。
+- 新增 `scripts/repair_operation_memory.py`。
+  - 默认 dry-run，只报告将修复哪些记录。
+  - 使用 `--apply` 时会先备份 `operation_history.json`，再写入修复后的历史记忆。
+- 已执行一次修复：
+  - 修复 6 条“小红书新手选题方法”历史记录。
+  - 备份文件：`memory/operation_history.json.backup_20260610_160400`。
+  - 修复后 dry-run 显示 `changed_records_count: 0`。
+
+已验证：
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+- 评论样本“真的可以做到吗？需要干货...”现在输出：
+  - `对「小红书新手选题方法」是否真实可行存在怀疑，需要可信案例和边界说明`
+- `find_successful_patterns("小红书新手选题方法")` 不再返回护理类痛点。
+- `find_successful_patterns("宝宝湿疹护理")` 仍能返回健康护理主题记录。
+
+下一步：
+1. 重启正在运行的 API 服务，否则 `127.0.0.1:8010` 仍可能使用旧代码。
+2. 重新运行 `scripts/check_api_run.py`，确认返回结果中的 `insights.pain_points` 不再出现护理类表达。
+3. 如果内容质量稳定，再回到高并发主线，继续推进数据库模型和外部队列。
+
+## 2026-06-10 M14.7 内容结构与安全替换修复
+
+本轮目标是处理真实 LLM 输出中的两个新问题：
+- `content_type` 显示为 `avoid_mistakes`，但正文实际是步骤教程，摘要与内容结构不一致。
+- 安全替换把“不要保证/一定”等表达替坏，出现“不尽量你照做就建议有结果”这类病句。
+
+问题判断：
+- `strategy_node` 会先根据痛点命中“避坑”，得到 `avoid_mistakes`。
+- `pattern_utils.structure_profile()` 会优先复用高表现历史结构，实际生成时使用了 `step_tutorial`。
+- 图文/视频生成节点之前没有把实际使用的结构类型回写到 state，导致最终摘要仍显示旧的策略类型。
+- `text_replacements.json` 只有单词级替换，例如 `保证 -> 尽量`、`一定 -> 建议`，破坏了“不保证你照做就一定有结果”的句子结构。
+
+已完成：
+- 更新 `config/text_replacements.json`：
+  - 新增 `phrase_replacements`，先处理完整短语。
+  - 将“不保证你照做就一定有结果”修正为“不是说照做就会直接出结果”。
+  - 调整部分单词兜底替换，降低病句概率。
+- 更新 `nodes/content_node.py`：
+  - 安全替换顺序改为：短语替换 -> 绝对词替换 -> 质量词替换。
+  - LLM 图文结果和模板图文结果都会回写实际 `content_type`。
+- 更新 `nodes/video_node.py`：
+  - 同步使用短语优先的安全替换。
+  - LLM 视频结果和模板视频结果都会回写实际 `content_type`。
+
+已验证：
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+- 替换样本：
+  - 输入：`这篇不保证你照做就一定有结果，但能帮你避开一定会踩的坑。`
+  - 输出：`这篇不是说照做就会直接出结果，但能帮你避开可能会踩的坑。`
+- mock LangGraph 主流程通过。
+- mock 结果中 `content_type` 已变为 `step_tutorial`，与步骤正文一致。
+
+下一步：
+1. 重启 API 服务。
+2. 用真实 LLM 再跑一次“小红书新手选题方法”，重点检查正文最后一段是否仍有病句。
+3. 如果内容质量稳定，再继续高并发主线。
+
+## 2026-06-10 M14.8 采集噪声与中文空格清洗
+
+本轮目标是处理 cookie 恢复后真实采集暴露出的两个小问题：
+- `raw_comments` 中仍保留“互粉、回复 1、加粉”等噪声评论。
+- LLM 正文偶尔出现“再 处理”这类中文词中间异常空格。
+
+已完成：
+- 更新 `platforms/comment_analysis.py`：
+  - 将噪声评论判断暴露为 `is_noise_comment_text()`。
+  - 噪声关键词匹配改为压缩空白后判断，避免换行和空格绕过过滤。
+- 更新 `platforms/spider_xhs_collector.py`：
+  - 采集层复用评论洞察层的噪声判断，避免两套过滤标准不一致。
+- 更新 `nodes/content_node.py` 和 `nodes/video_node.py`：
+  - 生成文本清洗阶段移除中文字符之间的异常空格。
+  - 保留数字与中文之间的正常空格，例如 `30 篇`、`5-10 个`。
+
+已验证：
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+- “不够1000人的告诉我 / 让我们成为彼此的粉丝”会被判定为噪声。
+- “1”会被判定为噪声。
+- “真的可以做到吗？需要干货”会保留。
+- “第三步：再 处理。”会被清洗为“第三步：再处理。”。
+
+下一步：
+1. 重启 API 服务。
+2. 重新跑真实采集，确认 `raw_comments_count` 会下降，但 `comment_insights_count` 仍能稳定保持。
+3. 如果采集质量稳定，再回到高并发主线。
+
+补充修复：
+- 真实测试中仍发现少量中文异常空格，例如“不匹配 、无法”“一开始 就”“新手穿搭  小个子通勤”。
+- 已收紧中文空格清洗规则：
+  - 保留段落换行。
+  - 删除中文之间的单个异常空格。
+  - 删除标点前后的异常空格。
+  - 两段中文之间的两个以上空格转成中文逗号，避免直接粘成病句。
+  - 保留数字与单位之间的正常空格，例如 `30 篇`、`5-10 个`。
+- 已验证：
+  - `不匹配 、无法` -> `不匹配、无法`
+  - `一开始 就` -> `一开始就`
+  - `新手穿搭  小个子通勤` -> `新手穿搭，小个子通勤`
+
+## 2026-06-10 M14.9 可信表达收敛
+
+本轮目标是处理真实 LLM 输出中的“虚构背书”和“过度承诺”表达。
+
+问题表现：
+- 标题中出现 `实测可行`、`照着做就行`、`刷了100篇才懂`、`直接抄作业`、`少走半年弯路`。
+- 这些表达虽然不一定触发合规风险，但会降低内容可信度；在没有真实输入证据时，不能让模型伪装成已有个人经历或明确承诺结果。
+
+已完成：
+- 更新 `config/text_replacements.json`：
+  - `照着做就行` -> `可以照着步骤先试`
+  - `直接抄作业` -> `可以参考这个步骤`
+  - `亲测有效` -> `有参考价值`
+  - `实测可行/实测可用` -> `可以按步骤验证`
+  - `刷了100篇才懂` -> `看了很多案例后整理`
+  - `少走半年弯路` -> `少走一些弯路`
+  - `瞎找` -> `盲目找`
+- 更新 `config/llm_prompts.json`：
+  - 图文和视频系统提示中加入：不要虚构个人经历、验证次数、收益结果或亲测背书。
+  - 无输入证据时禁止写 `亲测`、`实测`、`刷了100篇`、`少走半年弯路`、`照着做就行`、`直接抄作业`。
+
+已验证：
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+- 安全替换样本通过：
+  - `实测可行｜...` -> `可以按步骤验证｜...`
+  - `照着做就行` -> `可以照着步骤先试`
+  - `刷了100篇才懂` -> `看了很多案例后整理`
+  - `直接抄作业` -> `可以参考这个步骤`
+- LLM prompt 可正常加载，系统提示已包含“不要虚构个人经历”。
+
+下一步：
+1. 重启 API 服务。
+2. 再跑一次真实 LLM 测试，确认标题不再出现虚构背书和强承诺表达。
+3. 若通过，内容质量修复阶段可以收尾，回到高并发主线。
+
+## 2026-06-10 全局进度与工程路线图整理
+
+已新增 `memory/project_status_and_roadmap.md`，用于记录：
+- 当前项目总体目标。
+- 已完成的主链路能力。
+- 当前系统架构。
+- 期待的生产级工程形态。
+- 尚未实现的关键环节。
+- 后续优先级排序。
+
+该文件是后续 `/resume` 或重新进入项目时的全局上下文入口；`current_progress.md` 继续用于记录每轮小步变更。

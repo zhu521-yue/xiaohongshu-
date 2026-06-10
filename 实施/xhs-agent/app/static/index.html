@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>XHS Agent 工作台</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>XHS Agent 工作台</h1>
+          <p id="serviceStatus">连接中</p>
+        </div>
+        <div class="queue-strip" id="queueStrip">
+          <span>等待 0</span>
+          <span>运行 0</span>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel form-panel">
+          <div class="panel-head">
+            <h2>新建任务</h2>
+          </div>
+          <form id="runForm" class="form-grid">
+            <label>
+              <span>主题</span>
+              <input name="topic" value="小红书新手选题方法" required />
+            </label>
+            <label>
+              <span>目标用户</span>
+              <input name="target_user" value="内容创作新手" />
+            </label>
+            <div class="field-row">
+              <label>
+                <span>形式</span>
+                <select name="format">
+                  <option value="image_text">图文</option>
+                  <option value="video">视频脚本</option>
+                </select>
+              </label>
+              <label>
+                <span>引擎</span>
+                <select name="engine">
+                  <option value="langgraph">LangGraph</option>
+                  <option value="local">Local</option>
+                </select>
+              </label>
+            </div>
+            <label>
+              <span>采集数量</span>
+              <input name="collect_limit" type="number" value="5" min="1" max="20" />
+            </label>
+            <label class="check-row">
+              <input name="approve" type="checkbox" />
+              <span>保存 Markdown 并写入运营记忆</span>
+            </label>
+            <button type="submit" id="submitButton">提交任务</button>
+          </form>
+          <div class="notice" id="formNotice"></div>
+        </section>
+
+        <section class="panel result-panel">
+          <div class="panel-head">
+            <h2>任务结果</h2>
+            <span class="status-pill" id="currentStatus">未选择</span>
+          </div>
+          <div class="summary-grid" id="summaryGrid"></div>
+          <div class="review-actions" id="reviewActions" hidden>
+            <button type="button" id="approveRunButton">审核通过并保存</button>
+            <button class="ghost-button danger-button" type="button" id="rejectRunButton">审核不通过</button>
+            <span class="notice inline-notice" id="reviewNotice"></span>
+          </div>
+          <div class="tabs" role="tablist">
+            <button class="tab active" data-tab="draft" type="button">草稿</button>
+            <button class="tab" data-tab="insights" type="button">痛点</button>
+            <button class="tab" data-tab="raw" type="button">JSON</button>
+          </div>
+          <div class="tab-view active" id="draftTab"></div>
+          <div class="tab-view" id="insightsTab"></div>
+          <pre class="tab-view json-view" id="rawTab"></pre>
+        </section>
+
+        <aside class="side-stack">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>队列</h2>
+              <button class="ghost-button" id="refreshButton" type="button">刷新</button>
+            </div>
+            <div class="queue-detail" id="queueDetail"></div>
+          </section>
+
+          <section class="panel runs-panel">
+            <div class="panel-head">
+              <h2>运行记录</h2>
+            </div>
+            <div class="run-list" id="runList"></div>
+          </section>
+        </aside>
+
+        <section class="panel performance-panel">
+          <div class="panel-head">
+            <h2>表现录入</h2>
+          </div>
+          <form id="performanceForm" class="performance-grid">
+            <label class="wide">
+              <span>post_id</span>
+              <input name="post_id" placeholder="保存草稿后自动填入，或从运营记忆复制" />
+            </label>
+            <label><span>曝光</span><input name="views" type="number" min="0" value="0" /></label>
+            <label><span>点赞</span><input name="likes" type="number" min="0" value="0" /></label>
+            <label><span>收藏</span><input name="collects" type="number" min="0" value="0" /></label>
+            <label><span>评论</span><input name="comments" type="number" min="0" value="0" /></label>
+            <label><span>关注</span><input name="follows" type="number" min="0" value="0" /></label>
+            <button type="submit">录入表现</button>
+          </form>
+          <div class="notice" id="performanceNotice"></div>
+        </section>
+
+        <section class="panel memory-panel">
+          <div class="panel-head">
+            <h2>运营记忆</h2>
+          </div>
+          <div class="memory-list" id="memoryList"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

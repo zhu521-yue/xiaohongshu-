@@ -1,0 +1,7 @@
+{
+  "avoid_mistake_keywords": ["避坑", "误区", "踩坑", "靠谱不靠谱", "坑"],
+  "step_tutorial_keywords": ["步骤", "流程", "第一步", "从哪开始", "怎么开始", "入门", "清单"],
+  "valid_content_types": ["knowledge_share", "experience_summary", "avoid_mistakes", "qa_education", "step_tutorial"],
+  "default_content_type": "knowledge_share",
+  "default_content_format": "image_text"
+}

@@ -1,0 +1,111 @@
+{
+  "valid_content_types": ["knowledge_share", "experience_summary", "avoid_mistakes", "qa_education", "step_tutorial"],
+  "default_content_type": "knowledge_share",
+  "structure_profiles": {
+    "knowledge_share": {
+      "label": "知识分享",
+      "title_templates": [
+        "{topic}新手别急，先看懂这几个问题",
+        "{primary_pain}，先别急着下结论",
+        "{topic}到底怎么判断？一篇讲清楚"
+      ],
+      "cover_main": "{topic}知识卡片",
+      "cover_sub": "先看懂，再行动",
+      "body_heading": "评论里最集中的困惑是：",
+      "action_heading": "建议你先按下面这个顺序处理：",
+      "action_steps": [
+        "先收集真实问题：用户原话、使用场景和反复出现的关键词。",
+        "再归类判断：相似问题放在一起看，不要只凭单个案例下结论。",
+        "最后给出边界：哪些能直接执行，哪些需要继续验证或补充信息。"
+      ],
+      "page_titles": ["先别急着判断", "评论高频问题", "判断顺序", "提醒"],
+      "page_texts": ["先看真实场景，再决定下一步", "{primary_pain}", "原话 → 场景 → 频率 → 下一步", "不要照搬单一方案"],
+      "video_hook": "如果你也在纠结{topic}，先别急着照搬别人的方法。",
+      "video_points": ["先看清楚问题", "再拆判断顺序", "最后给出行动提醒"]
+    },
+    "avoid_mistakes": {
+      "label": "避免错误",
+      "title_templates": [
+        "{topic}先别急着判断，这几个坑要避开",
+        "{primary_pain}，很多人第一步就错了",
+        "{topic}避坑指南：先看懂再处理"
+      ],
+      "cover_main": "{topic}避坑指南",
+      "cover_sub": "别急着照搬",
+      "body_heading": "评论里最容易踩坑的地方是：",
+      "action_heading": "建议你先避开这几个误区：",
+      "action_steps": [
+        "不要只看单条爆款或单个案例，先确认它是否适合你的账号和目标用户。",
+        "不要忽略评论里的真实提问，选题不是只看标题热不热。",
+        "不要一次塞太多结论，先把一个核心问题讲透，再引导用户补充反馈。"
+      ],
+      "page_titles": ["先别急着判断", "高频误区", "正确观察顺序", "避坑提醒"],
+      "page_texts": ["别先套方案", "{primary_pain}", "账号定位 → 用户问题 → 可执行程度", "先验证，再放大"],
+      "video_hook": "评论里很多人卡在第一步：{first_evidence}",
+      "video_points": ["先说最常见误区", "再拆正确观察顺序", "最后给一个避坑清单"]
+    },
+    "step_tutorial": {
+      "label": "步骤教程",
+      "title_templates": [
+        "{topic}处理顺序，一步一步看",
+        "{primary_pain}，先按这个流程判断",
+        "{topic}新手流程：从观察到处理"
+      ],
+      "cover_main": "{topic}步骤清单",
+      "cover_sub": "按顺序看更稳",
+      "body_heading": "评论里最需要拆步骤的问题是：",
+      "action_heading": "建议你按这个流程走：",
+      "action_steps": [
+        "第一步：记录用户原话、目标场景和高频关键词。",
+        "第二步：筛掉和账号定位不匹配、无法持续产出的方向。",
+        "第三步：把方向拆成具体选题，发布后记录反馈，再继续迭代。"
+      ],
+      "page_titles": ["先记录", "再判断", "再处理", "最后复查"],
+      "page_texts": ["原话/场景/频率", "{primary_pain}", "不要跳步骤", "看反馈，再迭代"],
+      "video_hook": "{topic}不要乱试，先按顺序看。",
+      "video_points": ["第一步先记录", "第二步再判断", "第三步再决定怎么处理"]
+    },
+    "qa_education": {
+      "label": "问答教育",
+      "title_templates": [
+        "{topic}评论区问得最多的几个问题",
+        "{primary_pain}，用问答讲清楚",
+        "{topic}常见问题一次说清"
+      ],
+      "cover_main": "{topic}高频问答",
+      "cover_sub": "评论区问题整理",
+      "body_heading": "评论里被反复问到的是：",
+      "action_heading": "可以先按问答顺序看：",
+      "action_steps": [
+        "先回答最常见的判断问题。",
+        "再说明容易混淆的情况。",
+        "最后给出需要进一步确认的边界。"
+      ],
+      "page_titles": ["高频问题", "常见混淆", "判断边界", "评论引导"],
+      "page_texts": ["{primary_pain}", "不要只看单一案例", "适合谁/不适合谁/下一步", "留下你的具体问题"],
+      "video_hook": "评论区这个问题被问了很多次：{first_evidence}",
+      "video_points": ["先回答高频问题", "再解释容易混淆点", "最后说清边界"]
+    },
+    "experience_summary": {
+      "label": "经验总结",
+      "title_templates": [
+        "{topic}经验整理：这些问题先弄清楚",
+        "我把{topic}评论里的问题整理了一遍",
+        "{primary_pain}，这份经验总结可以先看"
+      ],
+      "cover_main": "{topic}经验整理",
+      "cover_sub": "评论问题复盘",
+      "body_heading": "这次整理出来的重点是：",
+      "action_heading": "可以先记住这几个经验：",
+      "action_steps": [
+        "先看用户真实问题集中在哪里。",
+        "再把相似问题放在一起判断。",
+        "最后保留复盘空间，下次根据反馈继续修正。"
+      ],
+      "page_titles": ["经验结论", "评论证据", "处理顺序", "下次复查"],
+      "page_texts": ["先抓主要问题", "{primary_pain}", "观察 → 判断 → 记录", "根据反馈继续调整"],
+      "video_hook": "我把{topic}评论里的问题整理了一遍。",
+      "video_points": ["先总结问题", "再讲判断顺序", "最后说复盘提醒"]
+    }
+  }
+}
