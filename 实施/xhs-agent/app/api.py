@@ -612,6 +612,23 @@ def _request_is_authorized(method: str, path: str, headers: Mapping[str, str]) -
     return hmac.compare_digest(request_token, expected_token)
 
 
+def _strip_query_from_request_line(request_line: str) -> str:
+    parts = request_line.split(" ")
+    if len(parts) < 2:
+        return urlparse(request_line)._replace(query="", fragment="").geturl()
+
+    parsed = urlparse(parts[1])
+    parts[1] = parsed._replace(query="", fragment="").geturl()
+    return " ".join(parts)
+
+
+def _safe_http_log_message(format: str, args: tuple[Any, ...]) -> str:
+    safe_args = args
+    if args and isinstance(args[0], str):
+        safe_args = (_strip_query_from_request_line(args[0]), *args[1:])
+    return format % safe_args
+
+
 class XHSAgentAPIHandler(BaseHTTPRequestHandler):
     server_version = "XHSAgentAPI/0.1"
 
@@ -766,7 +783,7 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
         LOGGER.info(
             "http_request client=%s message=%s",
             self.address_string(),
-            format % args,
+            _safe_http_log_message(format, args),
         )
 
 
