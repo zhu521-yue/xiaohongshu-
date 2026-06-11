@@ -1,5 +1,55 @@
 # 当前工程进度
 
+## 2026-06-11 M17b 启动模板与部署清单
+
+本轮目标是在不引入 Docker、Nginx、systemd、Redis 或新进程管理器的前提下，把当前 API/worker 的启动方式固化为可重复执行的 Windows/PowerShell 模板，并明确使用 `ContentShare` Python 环境。
+
+已完成：
+- 新增 `scripts/start_local_api.ps1`，用于本地开发模式启动 API，默认 `COLLECTOR_MODE=mock`、`LLM_MODEL_NAME=mock`、`XHS_AGENT_RUN_QUEUE=local`。
+- 新增 `scripts/start_sqlite_api.ps1`，用于 SQLite 分进程模式启动 API，统一设置 run store、run queue、operation memory 到同一个 SQLite DB 路径。
+- 新增 `scripts/start_sqlite_worker.ps1`，用于 SQLite 分进程模式启动 worker，支持 `-Once` 单步处理。
+- 三个启动模板都支持 `-CheckOnly`，可只运行配置检查，不启动长时间运行进程。
+- 三个启动模板都按顺序选择 Python：`-Python` 参数、`XHS_AGENT_PYTHON`、`D:\Anaconda\envs\ContentShare\python.exe`、最后才回退到裸 `python`。
+- 新增 `docs/m17b-startup-templates.md`，说明本地模式、SQLite 分进程模式、带 token 模式、production-lite preflight、日志位置和当前限制。
+- 新增 `tests/test_startup_templates.py`，覆盖启动模板存在性、`CheckOnly` 支持、`ContentShare` Python 选择逻辑提示和 SQLite DB 路径一致性要求。
+- 新增设计与计划文档：
+  - `docs/superpowers/specs/2026-06-11-startup-templates-design.md`
+  - `docs/superpowers/plans/2026-06-11-startup-templates.md`
+
+已验证：
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_startup_templates.py -q` 通过，3 个启动模板测试通过。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_local_api.ps1 -CheckOnly -Python D:\Anaconda\envs\ContentShare\python.exe` 通过，local profile 检查退出 0。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_sqlite_api.ps1 -CheckOnly -Python D:\Anaconda\envs\ContentShare\python.exe` 通过，sqlite-worker profile 检查退出 0。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_sqlite_worker.ps1 -CheckOnly -Python D:\Anaconda\envs\ContentShare\python.exe` 通过，sqlite-worker profile 检查退出 0。
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` 通过，当前 59 个测试全部通过。
+- `D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes routers platforms memory scripts llm` 通过。
+
+当前阶段判断：
+- 当前 API/worker 已有可重复启动模板，后续自测不必再手动复制大量环境变量。
+- 本轮仍不等于完整生产部署；公网部署前仍需要 HTTPS、反向代理、进程守护、备份、账号权限和更完整的密钥治理。
+
+建议下一步：
+1. 如继续工程主线，进入 M18：更高并发队列能力评估和 Redis/RQ 或 Celery 的取舍。
+2. 如继续产品功能主线，进入 M19：创作者平台私密发布和作品列表同步的低风险验证。
+3. 规则泛化和硬编码问题已记录，暂不阻塞当前主功能推进。
+
+## 2026-06-11 后续待处理：规则泛化与硬编码问题记录
+
+本轮只记录问题，不立即进入修复。当前优先级仍是继续推进主要工程功能；内容审核、评论洞察、模板 fallback 和跨领域记忆过滤的泛化问题，后续按阶段逐步改善。
+
+已确认的后续问题：
+- 合规规则仍偏单层，当前主要覆盖健康/母婴与小红书增长承诺；法律、金融、教育、职场、医美、减肥等主题还没有独立风险分层。
+- `config/compliance_rules.json` 中已配置 `avoid_promise_words`，但 `nodes/compliance_node.py` 当前审核流程没有实际拦截 `爆款`、`必火`、`暴涨`、`快速涨粉` 等过度承诺词。
+- 全局 `safety_note` 目前是健康类提示，如果后续直接扩展金融/法律等敏感主题，可能出现提示语错配，需要改成按领域匹配。
+- `memory/operation_store.py` 的跨领域污染过滤目前只针对健康护理旧记录，不是通用领域隔离机制。
+- `config/comment_insight_rules.json` 已有通用规则和 `baby_skin_care` 领域组，但领域覆盖仍窄，后续需要逐步补法律、金融、教育、职场、医美、内容创作等高频主题规则。
+- 图文和视频 fallback 模板仍有较多“小红书运营/知识分享/内容创作”默认表达；真实 LLM 路径影响较小，但 mock 或 LLM 失败时会带偏输出。
+
+后续建议：
+1. 先继续主功能开发，不让这些细节阻塞当前工程主线。
+2. 后续单独开一轮规则治理，把合规规则改成多领域规则组，并补充对应测试。
+3. 再逐步处理模板 fallback、评论洞察领域扩展和历史记忆跨领域复用边界。
+
 ## 2026-06-11 M17a 最小生产护栏
 
 本轮目标是在不引入 Docker、Nginx、systemd、Redis 或新 Web 框架的前提下，给当前 API/worker 增加最小生产护栏。
