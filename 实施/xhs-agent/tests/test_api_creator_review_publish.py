@@ -367,6 +367,39 @@ def test_creator_adapter_error_is_redacted_in_summary_and_operation_memory(isola
         assert secret not in memory_text
 
 
+def test_creator_adapter_error_redacts_quoted_headers_and_cookie_segments(isolated_api, monkeypatch) -> None:
+    def raise_adapter_error(*args, **kwargs):
+        raise RuntimeError(
+            '{"authorization": "Bearer xyz", "api_key": "sk-live"} '
+            "{'password': 'pw123'} cookie=a=secret; session=leak"
+        )
+
+    monkeypatch.setattr(api.creator_platform, "publish_private_image_text", raise_adapter_error)
+    record = _generated_record("run_creator_redacted_structured_error")
+    _save_generated(record)
+
+    reviewed = api.approve_run(
+        record["run_id"],
+        {
+            "feedback": "approved",
+            "creator_publish": True,
+            "creator_publish_private": True,
+            "creator_human_confirmed": True,
+        },
+    )
+
+    persisted_text = repr(
+        {
+            "summary": reviewed["summary"],
+            "result": reviewed["state"]["creator_publish_result"],
+            "memory": operation_store.load_history()["records"][-1],
+        }
+    )
+    assert "[REDACTED]" in persisted_text
+    for secret in ("Bearer xyz", "sk-live", "pw123", "a=secret", "session=leak"):
+        assert secret not in persisted_text
+
+
 def test_windows_pytest_tmp_mode_relaxation_is_limited_to_safe_temp_root() -> None:
     safe_root = Path("data") / "pytest_tmp_safe"
     assert _should_relax_windows_pytest_tmp_mode(safe_root / "case", 0o700) is True

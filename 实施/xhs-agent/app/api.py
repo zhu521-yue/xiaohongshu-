@@ -405,10 +405,20 @@ def _sanitize_creator_error(error: Any) -> str:
     replacements = [
         r"(?i)\bauthorization\s*[:=]\s*Bearer\s+[^\s,;]+",
         r"(?i)\b(cookie|token|password|api[_-]?key|apikey|authorization)\s*[:=]\s*[^\s,;]+",
+        r"(?i)([\"'])(cookie|token|password|api[_-]?key|apikey|authorization)\1\s*:\s*([\"']).*?\3",
     ]
     for pattern in replacements:
-        text = re.sub(pattern, lambda match: f"{match.group(1) if match.lastindex else 'authorization'}=[REDACTED]", text)
+        text = re.sub(pattern, _redacted_creator_error_match, text)
+    text = re.sub(r"(?i)(cookie=\[REDACTED\])(?:;\s*[^,\s;=]+=[^,\s;]+)+", r"\1", text)
     return text
+
+
+def _redacted_creator_error_match(match: re.Match[str]) -> str:
+    if match.lastindex and match.lastindex >= 2 and match.group(2):
+        quote = match.group(1)
+        return f"{quote}{match.group(2)}{quote}: {quote}[REDACTED]{quote}"
+    key = match.group(1) if match.lastindex else "authorization"
+    return f"{key}=[REDACTED]"
 
 
 def _creator_publish_failed(error: str, *, requested: bool = True) -> dict[str, Any]:
