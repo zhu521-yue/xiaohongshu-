@@ -15,9 +15,17 @@ def _print_json(data: Any) -> None:
     print(json.dumps(data, ensure_ascii=False, indent=2))
 
 
+def build_headers(api_token: str | None) -> dict[str, str]:
+    token = str(api_token or "").strip()
+    if not token:
+        return {}
+    return {"Authorization": f"Bearer {token}"}
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Check async /runs API flow.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8010", help="API base URL.")
+    parser.add_argument("--api-token", default=None, help="API token for guarded API mode.")
     parser.add_argument("--topic", default="小红书新手选题方法", help="Content topic.")
     parser.add_argument("--target-user", default="内容创作新手", help="Target user.")
     parser.add_argument(
@@ -43,6 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     args = build_parser().parse_args()
     base_url = args.base_url.rstrip("/")
+    headers = build_headers(args.api_token)
 
     payload = {
         "topic": args.topic,
@@ -54,7 +63,7 @@ def main() -> int:
     }
 
     try:
-        response = requests.post(f"{base_url}/runs", json=payload, timeout=30)
+        response = requests.post(f"{base_url}/runs", json=payload, headers=headers, timeout=30)
     except requests.RequestException as exc:
         print(f"API request failed: {exc}")
         return 2
@@ -80,7 +89,7 @@ def main() -> int:
     index = 0
     while time.time() < deadline:
         try:
-            poll_response = requests.get(f"{base_url}/runs/{run_id}", timeout=30)
+            poll_response = requests.get(f"{base_url}/runs/{run_id}", headers=headers, timeout=30)
             poll_data = poll_response.json()
         except (requests.RequestException, ValueError) as exc:
             print(f"poll failed: {exc}")
