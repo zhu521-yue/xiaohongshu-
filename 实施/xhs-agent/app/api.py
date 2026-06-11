@@ -26,8 +26,9 @@ from app.run_queue import LocalRunQueue, SQLiteRunQueue
 from app.run_store import LocalRunStore, SQLiteRunStore
 from memory.operation_store import load_history, operation_memory_path, update_record_performance
 from nodes.memory_node import write_operation_memory
-from nodes.publish_node import publish_or_schedule
+from nodes import publish_node
 from nodes.review_node import review_performance
+from platforms import creator as creator_platform
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -164,6 +165,11 @@ def _state_summary(state: dict[str, Any]) -> dict[str, Any]:
         "human_approved": state.get("human_approved"),
         "publish_status": state.get("publish_status"),
         "post_id": state.get("post_id"),
+        "creator_publish_requested": state.get("creator_publish_requested"),
+        "creator_publish_status": state.get("creator_publish_status"),
+        "creator_publish_mode": state.get("creator_publish_mode"),
+        "creator_note_id": state.get("creator_note_id"),
+        "creator_publish_error": state.get("creator_publish_error"),
         "operation_memory_written": state.get("operation_memory_written"),
         "operation_record_id": state.get("operation_record_id"),
         "review_summary": state.get("review_summary"),
@@ -337,6 +343,11 @@ def _state_from_record(record: dict[str, Any]) -> dict[str, Any]:
         "human_approved": summary.get("human_approved"),
         "publish_status": summary.get("publish_status"),
         "post_id": paths.get("post_id") or summary.get("post_id"),
+        "creator_publish_requested": summary.get("creator_publish_requested"),
+        "creator_publish_status": summary.get("creator_publish_status"),
+        "creator_publish_mode": summary.get("creator_publish_mode"),
+        "creator_note_id": summary.get("creator_note_id"),
+        "creator_publish_error": summary.get("creator_publish_error"),
         "collection_path": paths.get("collection_path"),
         "operation_memory_path": paths.get("operation_memory_path"),
         "pain_points": insights.get("pain_points") or [],
@@ -368,6 +379,116 @@ def _save_reviewed_run(
     return reviewed
 
 
+def _creator_publish_not_requested() -> dict[str, Any]:
+    return {
+        "creator_publish_requested": False,
+        "creator_publish_status": "not_requested",
+        "creator_publish_mode": creator_platform.creator_mode(),
+        "creator_note_id": None,
+        "creator_publish_error": None,
+        "creator_publish_result": {},
+    }
+
+
+def _creator_publish_failed(error: str, *, requested: bool = True) -> dict[str, Any]:
+    mode = creator_platform.creator_mode()
+    return {
+        "creator_publish_requested": requested,
+        "creator_publish_status": "failed",
+        "creator_publish_mode": mode,
+        "creator_note_id": None,
+        "creator_publish_error": str(error),
+        "creator_publish_result": {
+            "ok": False,
+            "mode": mode,
+            "platform": "xhs_creator",
+            "error": str(error),
+        },
+    }
+
+
+def _compact_creator_publish_result(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ok": result.get("ok") is True,
+        "mode": result.get("mode"),
+        "platform": result.get("platform"),
+        "visibility": result.get("visibility"),
+        "note_id": result.get("note_id"),
+        "error": result.get("error"),
+    }
+
+
+def _creator_publish_success(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "creator_publish_requested": True,
+        "creator_publish_status": "success",
+        "creator_publish_mode": str(result.get("mode") or creator_platform.creator_mode()),
+        "creator_note_id": result.get("note_id"),
+        "creator_publish_error": None,
+        "creator_publish_result": _compact_creator_publish_result(result),
+    }
+
+
+def _validate_creator_publish_payload(payload: dict[str, Any]) -> None:
+    if not _bool(payload.get("creator_publish"), default=False):
+        return
+    if _bool(payload.get("creator_publish_private"), default=False) is not True:
+        raise ValueError("creator_publish_private=True is required for creator publishing")
+    if _bool(payload.get("creator_human_confirmed"), default=False) is not True:
+        raise ValueError("creator_human_confirmed=True is required for creator publishing")
+
+
+def _creator_description_from_state(state: dict[str, Any]) -> str:
+    parts = [str(state.get("body") or "").strip()]
+    tags = [str(tag).strip().lstrip("#") for tag in state.get("tags") or [] if str(tag).strip()]
+    if tags:
+        parts.append(" ".join(f"#{tag}" for tag in tags))
+    comment_call = str(state.get("comment_call") or "").strip()
+    if comment_call:
+        parts.append(comment_call)
+    return "\n\n".join(part for part in parts if part).strip()
+
+
+def _creator_images_from_state(state: dict[str, Any], *, mode: str) -> list[Any]:
+    images = state.get("creator_image_bytes") or state.get("creator_images") or []
+    if isinstance(images, list) and images:
+        return images
+    if mode == "mock":
+        return [b"mock-image-bytes"]
+    raise ValueError("creator publishing requires image bytes in state when CREATOR_MODE=spider_xhs")
+
+
+def _build_creator_image_text_draft(state: dict[str, Any], *, mode: str) -> dict[str, Any]:
+    fallback_title = state.get("user_topic") or "Untitled note"
+    title = str((state.get("titles") or [fallback_title])[0]).strip()
+    desc = _creator_description_from_state(state)
+    return {
+        "title": title,
+        "desc": desc or title,
+        "images": _creator_images_from_state(state, mode=mode),
+        "topics": [str(tag).strip().lstrip("#") for tag in state.get("tags") or [] if str(tag).strip()],
+    }
+
+
+def _publish_creator_private_if_requested(state: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    if not _bool(payload.get("creator_publish"), default=False):
+        return _creator_publish_not_requested()
+
+    mode = creator_platform.creator_mode()
+    if state.get("content_format") != "image_text":
+        return _creator_publish_failed("creator publishing is image_text only in M19b")
+
+    try:
+        draft = _build_creator_image_text_draft(state, mode=mode)
+        result = creator_platform.publish_private_image_text(draft, human_confirmed=True)
+    except Exception as exc:
+        return _creator_publish_failed(str(exc))
+
+    if result.get("ok") is True:
+        return _creator_publish_success(result)
+    return _creator_publish_failed(str(result.get("error") or "creator publish failed"))
+
+
 def approve_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     record = _load_run(run_id)
     if not record:
@@ -384,12 +505,14 @@ def approve_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str,
         raise ValueError("High-risk compliance result cannot be approved directly")
 
     payload = payload or {}
+    _validate_creator_publish_payload(payload)
     feedback = str(payload.get("feedback") or "人工审核通过。").strip()
     state["human_approved"] = True
     state["human_feedback"] = feedback
     state["publish_status"] = "pending"
 
-    state.update(publish_or_schedule(state))
+    state.update(publish_node.publish_or_schedule(state))
+    state.update(_publish_creator_private_if_requested(state, payload))
     state.update(review_performance(state))
     state.update(write_operation_memory(state))
 
@@ -526,6 +649,11 @@ def _compact_memory_record(record: dict[str, Any]) -> dict[str, Any]:
         "status": record.get("status"),
         "content_type": record.get("content_type"),
         "content_format": record.get("content_format"),
+        "creator_publish_requested": record.get("creator_publish_requested"),
+        "creator_publish_status": record.get("creator_publish_status"),
+        "creator_publish_mode": record.get("creator_publish_mode"),
+        "creator_note_id": record.get("creator_note_id"),
+        "creator_publish_error": record.get("creator_publish_error"),
         "performance_data": record.get("performance_data") or {},
         "performance_score": record.get("performance_score"),
         "review_summary": record.get("review_summary"),

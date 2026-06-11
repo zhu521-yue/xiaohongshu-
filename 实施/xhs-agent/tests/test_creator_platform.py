@@ -116,3 +116,9 @@ def test_check_creator_platform_blocks_publish_without_confirmation(monkeypatch)
     exit_code = check_creator_platform.main(["--mode", "mock", "--publish-private"])
 
     assert exit_code == 1
+
+
+def test_creator_mode_returns_normalized_mode(monkeypatch) -> None:
+    monkeypatch.setenv("CREATOR_MODE", " MOCK ")
+
+    assert creator.creator_mode() == "mock"

@@ -30,6 +30,10 @@ def _mode() -> str:
     return os.getenv("CREATOR_MODE", "mock").strip().lower() or "mock"
 
 
+def creator_mode() -> str:
+    return _mode()
+
+
 def _creator_cookies() -> str:
     return (os.getenv("XHS_CREATOR_COOKIES") or os.getenv("CREATOR_COOKIES") or "").strip()
 
