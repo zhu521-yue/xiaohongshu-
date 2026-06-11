@@ -7,6 +7,8 @@ and a frontend framework.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hmac
 import json
 import logging
@@ -34,11 +36,13 @@ from platforms import creator as creator_platform
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUNS_DIR = PROJECT_ROOT / "data" / "api_runs"
+CREATOR_ASSETS_DIR = PROJECT_ROOT / "data" / "creator_assets"
 STATIC_DIR = PROJECT_ROOT / "app" / "static"
 RUN_STORE: LocalRunStore | SQLiteRunStore | None = None
 RUN_QUEUE_SERVICE: LocalRunQueue | SQLiteRunQueue | None = None
 LOGGER = logging.getLogger("xhs_agent.api")
 _MIN_CREATOR_IMAGE_BYTES = 32
+_MAX_CREATOR_ASSET_COUNT = creator_platform.MAX_IMAGE_COUNT
 _IMAGE_MAGIC_BYTES = (
     b"\x89PNG\r\n\x1a\n",
     b"\xff\xd8\xff",
@@ -47,6 +51,13 @@ _IMAGE_MAGIC_BYTES = (
     b"RIFF",
     b"BM",
 )
+_FAILURE_CATEGORY_LABELS = {
+    "creator_publish": "创作者平台或发布素材问题",
+    "llm_generation": "LLM 生成或解析问题",
+    "collection": "采集或 Cookie 问题",
+    "compliance": "合规拦截",
+    "unknown": "未分类失败，请查看错误详情",
+}
 
 
 def _now_iso() -> str:
@@ -139,6 +150,46 @@ def _int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _failure_category_label(category: str | None) -> str | None:
+    if not category:
+        return None
+    return _FAILURE_CATEGORY_LABELS.get(category, _FAILURE_CATEGORY_LABELS["unknown"])
+
+
+def _failure_category_from_text(text: Any) -> str | None:
+    clean_text = str(text or "").strip().lower()
+    if not clean_text:
+        return None
+    if "creator" in clean_text or "publish" in clean_text or "image bytes" in clean_text:
+        return "creator_publish"
+    if "llm" in clean_text or "json" in clean_text or "model" in clean_text:
+        return "llm_generation"
+    if "collect" in clean_text or "comment" in clean_text or "cookie" in clean_text or "spider" in clean_text:
+        return "collection"
+    if "compliance" in clean_text or "risk" in clean_text:
+        return "compliance"
+    return "unknown"
+
+
+def _summary_failure_category(state: dict[str, Any]) -> str | None:
+    if state.get("creator_publish_status") == "failed":
+        return _failure_category_from_text(state.get("creator_publish_error")) or "creator_publish"
+    if state.get("compliance_risk_level") == "high":
+        text = " ".join(str(item) for item in state.get("compliance_issues") or [])
+        return _failure_category_from_text(text) or "compliance"
+    return None
+
+
+def _run_failure_category(status: str, error: str | None, summary: dict[str, Any] | None = None) -> str | None:
+    if status == "failed":
+        return _failure_category_from_text(error) or "unknown"
+    if isinstance(summary, dict):
+        category = summary.get("failure_category")
+        if category:
+            return str(category)
+    return None
+
+
 def _run_path(run_id: str) -> Path:
     return _run_store().run_path(run_id)
 
@@ -155,11 +206,98 @@ def _list_runs(limit: int = 20) -> list[dict[str, Any]]:
     return _run_store().list(limit=limit)
 
 
+def _creator_asset_dir(run_id: str) -> Path:
+    safe_run_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", str(run_id or "").strip()).strip("._")
+    if not safe_run_id:
+        raise ValueError("run_id is required for creator assets")
+    return CREATOR_ASSETS_DIR / safe_run_id
+
+
+def _safe_creator_asset_filename(filename: Any, index: int) -> str:
+    raw_name = Path(str(filename or "")).name.strip()
+    safe_name = re.sub(r"[^A-Za-z0-9._-]+", "_", raw_name).strip("._")
+    if not safe_name:
+        safe_name = f"image_{index}.png"
+    if "." not in safe_name:
+        safe_name = f"{safe_name}.img"
+    return f"{index:02d}_{safe_name}"[:140]
+
+
+def _decode_creator_asset_image(item: Any, index: int) -> tuple[str, bytes]:
+    if not isinstance(item, dict):
+        raise ValueError("creator asset image item must be an object")
+
+    encoded = str(item.get("content_base64") or "").strip()
+    if encoded.startswith("data:") and "," in encoded:
+        encoded = encoded.split(",", 1)[1].strip()
+    if not encoded:
+        raise ValueError("creator asset image requires content_base64")
+
+    try:
+        image_bytes = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("creator asset image requires valid base64 content") from exc
+
+    if not _is_supported_creator_image_bytes(image_bytes):
+        raise ValueError("creator asset image must be valid image bytes")
+
+    return _safe_creator_asset_filename(item.get("filename"), index), image_bytes
+
+
+def _write_bytes_atomic(path: Path, payload: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    temp_path.write_bytes(payload)
+    temp_path.replace(path)
+
+
+def _path_for_state(path: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return str(resolved.relative_to(PROJECT_ROOT.resolve()))
+    except ValueError:
+        return str(resolved)
+
+
+def _resolve_creator_asset_path(path_value: Any) -> Path:
+    raw_path = str(path_value or "").strip()
+    if not raw_path:
+        raise ValueError("creator asset path is empty")
+
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = PROJECT_ROOT / path
+
+    resolved = path.resolve()
+    asset_root = CREATOR_ASSETS_DIR.resolve()
+    if resolved != asset_root and asset_root not in resolved.parents:
+        raise ValueError("creator asset path must stay inside creator asset directory")
+    return resolved
+
+
+def _creator_image_file_bytes_from_state(state: dict[str, Any]) -> list[bytes]:
+    files = state.get("creator_image_files") or []
+    if not isinstance(files, list) or not files:
+        return []
+
+    image_bytes = []
+    for file_value in files:
+        path = _resolve_creator_asset_path(file_value)
+        if not path.exists() or not path.is_file():
+            raise ValueError(f"creator asset file not found: {path}")
+        payload = path.read_bytes()
+        if not _is_supported_creator_image_bytes(payload):
+            raise ValueError("creator publishing requires valid image bytes in state when CREATOR_MODE=spider_xhs")
+        image_bytes.append(payload)
+    return image_bytes
+
+
 def queue_status() -> dict[str, Any]:
     return _run_queue_service().status()
 
 
 def _state_summary(state: dict[str, Any]) -> dict[str, Any]:
+    failure_category = _summary_failure_category(state)
     return {
         "raw_notes_count": len(state.get("raw_notes") or []),
         "raw_comments_count": len(state.get("raw_comments") or []),
@@ -180,12 +318,15 @@ def _state_summary(state: dict[str, Any]) -> dict[str, Any]:
         "creator_publish_mode": state.get("creator_publish_mode"),
         "creator_note_id": state.get("creator_note_id"),
         "creator_publish_error": state.get("creator_publish_error"),
+        "creator_images_count": _int(state.get("creator_images_count"), default=0),
         "operation_memory_written": state.get("operation_memory_written"),
         "operation_record_id": state.get("operation_record_id"),
         "review_summary": state.get("review_summary"),
         "next_action": state.get("next_action"),
         "llm_generation": state.get("llm_generation") or {},
         "review_generation": state.get("review_generation") or {},
+        "failure_category": failure_category,
+        "failure_category_label": _failure_category_label(failure_category),
     }
 
 
@@ -228,6 +369,8 @@ def _run_record(
 ) -> dict[str, Any]:
     state = state or {}
     now = _now_iso()
+    summary = _state_summary(state) if state else {}
+    failure_category = _run_failure_category(status, error, summary)
     return {
         "run_id": run_id,
         "status": status,
@@ -236,7 +379,7 @@ def _run_record(
         "started_at": started_at,
         "finished_at": finished_at,
         "request": request_payload,
-        "summary": _state_summary(state) if state else {},
+        "summary": summary,
         "content": _content_payload(state) if state else {},
         "insights": _insight_payload(state) if state else {},
         "state": state if state else {},
@@ -246,6 +389,8 @@ def _run_record(
             "operation_memory_path": state.get("operation_memory_path"),
         },
         "error": error,
+        "failure_category": failure_category,
+        "failure_category_label": _failure_category_label(failure_category),
     }
 
 
@@ -313,6 +458,32 @@ def _finish_run(
     return record
 
 
+def _decorate_run_record(record: dict[str, Any]) -> dict[str, Any]:
+    decorated = dict(record)
+    summary = dict(decorated.get("summary") or {})
+    summary_category = summary.get("failure_category")
+    if not summary_category:
+        summary_category = _failure_category_from_text(summary.get("creator_publish_error"))
+        if summary.get("creator_publish_status") == "failed" and not summary_category:
+            summary_category = "creator_publish"
+        if summary.get("compliance_risk_level") == "high" and not summary_category:
+            summary_category = "compliance"
+    summary["failure_category"] = summary_category
+    summary["failure_category_label"] = _failure_category_label(summary_category)
+    decorated["summary"] = summary
+
+    run_category = decorated.get("failure_category")
+    if not run_category:
+        run_category = _run_failure_category(
+            str(decorated.get("status") or ""),
+            decorated.get("error"),
+            summary,
+        )
+    decorated["failure_category"] = run_category
+    decorated["failure_category_label"] = _failure_category_label(run_category)
+    return decorated
+
+
 def _mark_run_running(existing: dict[str, Any]) -> dict[str, Any]:
     record = _run_record(
         run_id=existing["run_id"],
@@ -366,6 +537,56 @@ def _state_from_record(record: dict[str, Any]) -> dict[str, Any]:
     }
     restored.update(content)
     return restored
+
+
+def attach_creator_assets(run_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    record = _load_run(run_id)
+    if not record:
+        raise ValueError(f"Run not found: {run_id}")
+    if record.get("status") != "success":
+        raise ValueError("Only successful generated runs can bind creator assets")
+
+    state = _state_from_record(record)
+    if state.get("content_format") != "image_text":
+        raise ValueError("creator assets are only supported for image_text runs")
+    if state.get("publish_status") == "success":
+        raise ValueError("Cannot bind creator assets after approval")
+
+    images = payload.get("images") if isinstance(payload, dict) else None
+    if not isinstance(images, list) or not images:
+        raise ValueError("creator assets require at least one image")
+    if len(images) > _MAX_CREATOR_ASSET_COUNT:
+        raise ValueError(f"creator assets cannot contain more than {_MAX_CREATOR_ASSET_COUNT} images")
+
+    decoded_images = [
+        _decode_creator_asset_image(item, index)
+        for index, item in enumerate(images, start=1)
+    ]
+    asset_dir = _creator_asset_dir(run_id)
+    saved_files = []
+    for filename, image_bytes in decoded_images:
+        path = asset_dir / filename
+        _write_bytes_atomic(path, image_bytes)
+        saved_files.append(_path_for_state(path))
+
+    state["creator_image_files"] = saved_files
+    state["creator_images_count"] = len(saved_files)
+    state["creator_assets_updated_at"] = _now_iso()
+
+    updated = dict(record)
+    updated["updated_at"] = _now_iso()
+    updated["summary"] = _state_summary(state)
+    updated["content"] = _content_payload(state)
+    updated["insights"] = _insight_payload(state)
+    updated["state"] = state
+    updated["paths"] = {
+        "post_id": state.get("post_id"),
+        "collection_path": state.get("collection_path"),
+        "operation_memory_path": state.get("operation_memory_path"),
+    }
+    _save_run(updated)
+    LOGGER.info("creator_assets_bound run_id=%s image_count=%s", run_id, len(saved_files))
+    return updated
 
 
 def _save_reviewed_run(
@@ -495,6 +716,11 @@ def _creator_images_from_state(state: dict[str, Any], *, mode: str) -> list[Any]
                 raise ValueError("creator publishing requires valid image bytes in state when CREATOR_MODE=spider_xhs")
             image_bytes.append(payload)
         return image_bytes
+
+    file_bytes = _creator_image_file_bytes_from_state(state)
+    if file_bytes:
+        return file_bytes
+
     if mode == "mock":
         return [b"mock-image-bytes"]
     raise ValueError("creator publishing requires image bytes in state when CREATOR_MODE=spider_xhs")
@@ -727,10 +953,15 @@ def list_memory_records(limit: int = 20) -> dict[str, Any]:
     }
 
 
+def list_creator_notes(limit: int = 20) -> dict[str, Any]:
+    return {"creator_notes": creator_platform.list_published_notes(limit=max(0, int(limit)))}
+
+
 def record_performance(payload: dict[str, Any]) -> dict[str, Any]:
     post_id = str(payload.get("post_id") or "").strip()
-    if not post_id:
-        raise ValueError("Missing required field: post_id")
+    creator_note_id = str(payload.get("creator_note_id") or "").strip()
+    if not post_id and not creator_note_id:
+        raise ValueError("Missing required field: post_id or creator_note_id")
 
     performance_data = {
         "views": _int(payload.get("views"), default=0),
@@ -740,10 +971,11 @@ def record_performance(payload: dict[str, Any]) -> dict[str, Any]:
         "follows": _int(payload.get("follows"), default=0),
     }
     record = update_record_performance(
-        post_id=post_id,
+        post_id=post_id or None,
         performance_data=performance_data,
         published_url=str(payload.get("published_url") or "").strip() or None,
         notes=str(payload.get("notes") or "").strip() or None,
+        creator_note_id=creator_note_id or None,
     )
     return {
         "memory_path": str(operation_memory_path()),
@@ -881,6 +1113,7 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/runs":
+            runs = [_decorate_run_record(run) for run in _list_runs(limit=limit)]
             self._send_json(
                 200,
                 {
@@ -895,8 +1128,10 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
                             "finished_at": run.get("finished_at"),
                             "request": run.get("request"),
                             "summary": run.get("summary"),
+                            "failure_category": run.get("failure_category"),
+                            "failure_category_label": run.get("failure_category_label"),
                         }
-                        for run in _list_runs(limit=limit)
+                        for run in runs
                     ],
                 },
             )
@@ -906,13 +1141,17 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, **queue_status()})
             return
 
+        if path == "/creator/notes":
+            self._send_json(200, {"ok": True, **list_creator_notes(limit=limit)})
+            return
+
         if path.startswith("/runs/"):
             run_id = path.split("/", 2)[2]
             record = _load_run(run_id)
             if not record:
                 self._send_error(404, f"Run not found: {run_id}")
                 return
-            self._send_json(200, {"ok": True, "run": record})
+            self._send_json(200, {"ok": True, "run": _decorate_run_record(record)})
             return
 
         if path == "/memory/records":
@@ -941,6 +1180,11 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
                 return
 
             parts = path.strip("/").split("/")
+            if len(parts) == 3 and parts[0] == "runs" and parts[2] == "creator-assets":
+                record = attach_creator_assets(parts[1], payload)
+                self._send_json(200, {"ok": True, "run": record})
+                return
+
             if len(parts) == 3 and parts[0] == "runs" and parts[2] == "approve":
                 record = approve_run(parts[1], payload)
                 self._send_json(200, {"ok": True, "run": record})

@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 INDEX_HTML = (ROOT / "app" / "static" / "index.html").read_text(encoding="utf-8")
 APP_JS = (ROOT / "app" / "static" / "app.js").read_text(encoding="utf-8")
+STYLES_CSS = (ROOT / "app" / "static" / "styles.css").read_text(encoding="utf-8")
 
 
 def test_review_area_has_creator_publish_checkbox():
@@ -11,6 +12,23 @@ def test_review_area_has_creator_publish_checkbox():
     assert 'name="creator_publish"' in INDEX_HTML
     assert "review-publish-option" in INDEX_HTML
     assert "同时私密发布到创作者平台" in INDEX_HTML
+
+
+def test_review_actions_are_split_into_decision_and_publish_rows():
+    assert "review-decision-row" in INDEX_HTML
+    assert "review-publish-row" in INDEX_HTML
+    assert ".review-actions" in STYLES_CSS
+    assert "display: grid;" in STYLES_CSS
+    assert ".review-decision-row" in STYLES_CSS
+    assert ".review-publish-row" in STYLES_CSS
+
+
+def test_creator_publish_checkbox_is_visually_separate():
+    assert ".review-publish-option" in STYLES_CSS
+    assert "flex: 1 1 280px;" in STYLES_CSS
+    assert ".review-publish-option input" in STYLES_CSS
+    assert "width: 18px;" in STYLES_CSS
+    assert "height: 18px;" in STYLES_CSS
 
 
 def test_approve_payload_adds_creator_flags_only_when_checked():

@@ -68,14 +68,23 @@
             <span class="status-pill" id="currentStatus">未选择</span>
           </div>
           <div class="summary-grid" id="summaryGrid"></div>
+          <div class="run-diagnostics" id="runDiagnostics"></div>
           <div class="review-actions" id="reviewActions" hidden>
-            <button type="button" id="approveRunButton">审核通过并保存</button>
-            <button class="ghost-button danger-button" type="button" id="rejectRunButton">审核不通过</button>
-            <label class="check-row review-publish-option">
-              <input name="creator_publish" id="creatorPublishCheckbox" type="checkbox" />
-              <span>同时私密发布到创作者平台</span>
-            </label>
-            <span class="notice inline-notice" id="reviewNotice"></span>
+            <div class="review-decision-row">
+              <button type="button" id="approveRunButton">审核通过并保存</button>
+              <button class="ghost-button danger-button" type="button" id="rejectRunButton">审核不通过</button>
+              <span class="notice inline-notice" id="reviewNotice"></span>
+            </div>
+            <div class="review-publish-row">
+              <div class="creator-asset-actions">
+                <input id="creatorAssetInput" type="file" accept="image/*" multiple />
+                <button class="ghost-button" type="button" id="attachCreatorAssetsButton">绑定发布图片</button>
+              </div>
+              <label class="check-row review-publish-option">
+                <input name="creator_publish" id="creatorPublishCheckbox" type="checkbox" />
+                <span>同时私密发布到创作者平台</span>
+              </label>
+            </div>
           </div>
           <div class="tabs" role="tablist">
             <button class="tab active" data-tab="draft" type="button">草稿</button>
@@ -113,14 +122,20 @@
               <span>post_id</span>
               <input name="post_id" placeholder="保存草稿后自动填入，或从运营记忆复制" />
             </label>
+            <label class="wide">
+              <span>creator_note_id</span>
+              <input name="creator_note_id" placeholder="同步作品列表后选择平台笔记，或手动填写" />
+            </label>
             <label><span>曝光</span><input name="views" type="number" min="0" value="0" /></label>
             <label><span>点赞</span><input name="likes" type="number" min="0" value="0" /></label>
             <label><span>收藏</span><input name="collects" type="number" min="0" value="0" /></label>
             <label><span>评论</span><input name="comments" type="number" min="0" value="0" /></label>
             <label><span>关注</span><input name="follows" type="number" min="0" value="0" /></label>
+            <button class="ghost-button" id="syncCreatorNotesButton" type="button">同步作品列表</button>
             <button type="submit">录入表现</button>
           </form>
           <div class="notice" id="performanceNotice"></div>
+          <div class="creator-notes-list" id="creatorNotesList"></div>
         </section>
 
         <section class="panel memory-panel">

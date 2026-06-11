@@ -77,6 +77,9 @@ class XHSState(TypedDict, total=False):
     publish_status: Literal["pending", "success", "failed"]
     post_id: Optional[str]
     publish_time: Optional[str]
+    creator_image_files: List[str]
+    creator_images_count: int
+    creator_assets_updated_at: Optional[str]
 
     # 复盘结果
     performance_data: Dict[str, Any]

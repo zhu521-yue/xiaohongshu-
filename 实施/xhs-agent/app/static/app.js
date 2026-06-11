@@ -17,9 +17,12 @@ const elements = {
   runList: $("#runList"),
   currentStatus: $("#currentStatus"),
   summaryGrid: $("#summaryGrid"),
+  runDiagnostics: $("#runDiagnostics"),
   reviewActions: $("#reviewActions"),
   approveRunButton: $("#approveRunButton"),
   rejectRunButton: $("#rejectRunButton"),
+  creatorAssetInput: $("#creatorAssetInput"),
+  attachCreatorAssetsButton: $("#attachCreatorAssetsButton"),
   creatorPublishCheckbox: $("#creatorPublishCheckbox"),
   reviewNotice: $("#reviewNotice"),
   draftTab: $("#draftTab"),
@@ -27,6 +30,8 @@ const elements = {
   rawTab: $("#rawTab"),
   performanceForm: $("#performanceForm"),
   performanceNotice: $("#performanceNotice"),
+  syncCreatorNotesButton: $("#syncCreatorNotesButton"),
+  creatorNotesList: $("#creatorNotesList"),
   memoryList: $("#memoryList"),
 };
 
@@ -85,6 +90,123 @@ function creatorPublishStatusLabel(status) {
 
 function creatorPublishError(summary) {
   return summary.creator_publish_error || "";
+}
+
+function performanceStatusLabel(status) {
+  if (status === "performance_recorded") return "已录入";
+  if (status === "published") return "待录入";
+  if (status === "draft_saved") return "待录入";
+  if (status === "draft_pending") return "待保存";
+  return status || "-";
+}
+
+function performanceDataSummary(performanceData) {
+  const data = performanceData || {};
+  return [
+    `曝光 ${data.views ?? 0}`,
+    `赞 ${data.likes ?? 0}`,
+    `藏 ${data.collects ?? 0}`,
+    `评 ${data.comments ?? 0}`,
+    `关 ${data.follows ?? 0}`,
+  ].join(" / ");
+}
+
+function memoryMetaGrid(record) {
+  return `
+    <div class="memory-meta-grid">
+      ${metric("创作发布", creatorPublishStatusLabel(record.creator_publish_status))}
+      ${metric("平台笔记", record.creator_note_id)}
+      ${metric("表现状态", performanceStatusLabel(record.status))}
+      ${metric("表现分", record.performance_score ?? 0)}
+    </div>
+    <p class="muted">${escapeHtml(performanceDataSummary(record.performance_data))}</p>
+  `;
+}
+
+function fillPerformanceFromMemoryRecord(record) {
+  elements.performanceForm.elements.post_id.value = record.postId || "";
+  elements.performanceForm.elements.creator_note_id.value = record.creatorNoteId || "";
+  setNotice(elements.performanceNotice, `已选择运营记忆：${record.recordId || "-"}`);
+}
+
+function diagnoseRunFailure(run) {
+  if (run?.failure_category_label) return run.failure_category_label;
+  if (run?.summary?.failure_category_label) return run.summary.failure_category_label;
+
+  const text = [
+    run?.error,
+    run?.summary?.creator_publish_error,
+    run?.state?.error,
+    run?.state?.creator_publish_error,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  if (!text) return "暂无错误详情";
+  if (text.includes("creator") || text.includes("publish") || text.includes("image bytes")) {
+    return "创作者平台或发布素材问题";
+  }
+  if (text.includes("llm") || text.includes("json") || text.includes("model")) {
+    return "LLM 生成或解析问题";
+  }
+  if (text.includes("collect") || text.includes("comment") || text.includes("cookie") || text.includes("spider")) {
+    return "采集或 Cookie 问题";
+  }
+  if (text.includes("compliance") || text.includes("risk")) {
+    return "合规拦截";
+  }
+  return "未分类失败，请查看错误详情";
+}
+
+function runErrorDetail(run) {
+  return (
+    run?.error ||
+    run?.summary?.creator_publish_error ||
+    run?.state?.error ||
+    run?.state?.creator_publish_error ||
+    ""
+  );
+}
+
+function renderRunDiagnostics(run) {
+  const request = run.request || {};
+  const errorDetail = runErrorDetail(run);
+  const isFailed = run.status === "failed" || Boolean(errorDetail);
+  const failureHtml = isFailed
+    ? `<div class="diagnostic-alert">
+        <strong>${escapeHtml(diagnoseRunFailure(run))}</strong>
+        <p><span>错误详情</span>${escapeHtml(errorDetail || "任务失败，但没有返回详细错误")}</p>
+      </div>`
+    : "";
+
+  elements.runDiagnostics.innerHTML = `
+    <div class="diagnostics-head">
+      <h3>运行诊断</h3>
+      <span class="mini-pill ${statusClass(run.status)}">${escapeHtml(run.status || "-")}</span>
+    </div>
+    <div class="diagnostics-grid">
+      ${metric("主题", request.topic)}
+      ${metric("目标用户", request.target_user)}
+      ${metric("形式", request.format)}
+      ${metric("引擎", request.engine)}
+      ${metric("采集数量", request.collect_limit)}
+      ${metric("创建时间", compactTime(run.created_at))}
+      ${metric("更新时间", compactTime(run.updated_at))}
+      ${metric("任务 ID", run.run_id)}
+    </div>
+    ${failureHtml}
+    <div class="diagnostic-actions">
+      <button class="ghost-button" type="button" id="resubmitRunButton">用此任务参数重新提交</button>
+    </div>
+  `;
+
+  const resubmitButton = $("#resubmitRunButton");
+  if (resubmitButton) {
+    resubmitButton.addEventListener("click", () => {
+      resubmitRunFromCurrent();
+    });
+  }
 }
 
 function renderQueue(queue) {
@@ -149,6 +271,7 @@ function renderSummary(run) {
     metric("LLM", summary.llm_generation?.enabled ? "已启用" : "未启用"),
     metric("人审", summary.human_approved ? "通过" : "待审"),
     metric("发布", summary.publish_status),
+    metric("发布图片", summary.creator_images_count),
     metric("创作发布", creatorPublishStatusLabel(summary.creator_publish_status)),
     metric("平台笔记", summary.creator_note_id),
   ].join("");
@@ -164,12 +287,16 @@ function renderReviewActions(run) {
     summary.publish_status === "pending" &&
     summary.post_id == null &&
     summary.compliance_risk_level !== "high";
+  const canBindAssets = canReview && summary.content_format === "image_text";
 
   elements.reviewActions.hidden = !showReviewArea;
   elements.approveRunButton.disabled = !canReview;
   elements.rejectRunButton.disabled = !canReview;
+  elements.creatorAssetInput.disabled = !canBindAssets;
+  elements.attachCreatorAssetsButton.disabled = !canBindAssets;
   elements.creatorPublishCheckbox.disabled = !canReview;
   if (!canReview) {
+    elements.creatorAssetInput.value = "";
     elements.creatorPublishCheckbox.checked = false;
   }
 
@@ -272,6 +399,7 @@ function renderInsights(insights) {
 function renderRun(run) {
   state.currentRun = run;
   renderSummary(run);
+  renderRunDiagnostics(run);
   renderReviewActions(run);
 
   const content = run.content || {};
@@ -339,17 +467,122 @@ function renderMemory(records) {
 
   elements.memoryList.innerHTML = records
     .map((record) => `
-      <div class="memory-item">
+      <div class="memory-item" data-record-id="${escapeHtml(record.record_id || "")}" data-post-id="${escapeHtml(record.post_id || "")}" data-creator-note-id="${escapeHtml(record.creator_note_id || "")}">
         <div class="memory-title">
           <strong>${escapeHtml(record.title || record.topic || record.record_id)}</strong>
           <span class="mini-pill">${escapeHtml(record.performance_score ?? 0)}</span>
         </div>
         <p class="muted">${escapeHtml(record.content_format || "-")} · ${escapeHtml(record.content_type || "-")} · ${escapeHtml(record.status || "-")}</p>
+        ${memoryMetaGrid(record)}
         <p>${escapeHtml(record.review_summary || "")}</p>
         <p class="path-line">${escapeHtml(record.post_id || "")}</p>
+        <div class="memory-actions">
+          <button class="ghost-button memory-action-button" type="button">用这条记录录入表现</button>
+        </div>
       </div>
     `)
     .join("");
+
+  elements.memoryList.querySelectorAll(".memory-action-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = button.closest(".memory-item");
+      fillPerformanceFromMemoryRecord({
+        recordId: item?.dataset.recordId,
+        postId: item?.dataset.postId,
+        creatorNoteId: item?.dataset.creatorNoteId,
+      });
+    });
+  });
+}
+
+function renderCreatorNotes(notes) {
+  if (!notes.length) {
+    elements.creatorNotesList.innerHTML = `<div class="creator-note-item"><p class="muted">暂无平台作品</p></div>`;
+    return;
+  }
+
+  elements.creatorNotesList.innerHTML = notes
+    .map((note) => {
+      const noteId = note.note_id || "";
+      return `
+        <button class="creator-note-item" type="button" data-note-id="${escapeHtml(noteId)}">
+          <strong>${escapeHtml(note.title || noteId || "未命名作品")}</strong>
+          <span>${escapeHtml(noteId)}</span>
+          <span class="muted">${escapeHtml(note.visibility || "-")}</span>
+        </button>
+      `;
+    })
+    .join("");
+
+  elements.creatorNotesList.querySelectorAll(".creator-note-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      elements.performanceForm.elements.creator_note_id.value = item.dataset.noteId || "";
+      setNotice(elements.performanceNotice, `已选择平台笔记：${item.dataset.noteId || "-"}`);
+    });
+  });
+}
+
+async function syncCreatorNotes() {
+  elements.syncCreatorNotesButton.disabled = true;
+  setNotice(elements.performanceNotice, "正在同步作品列表");
+  try {
+    const data = await apiGet("/creator/notes?limit=20");
+    const creatorNotes = data.creator_notes || {};
+    if (creatorNotes.ok === false) {
+      throw new Error(creatorNotes.error || "同步作品列表失败");
+    }
+    renderCreatorNotes(creatorNotes.notes || []);
+    setNotice(elements.performanceNotice, `已同步 ${(creatorNotes.notes || []).length} 条作品`);
+  } catch (error) {
+    setNotice(elements.performanceNotice, error.message, true);
+  } finally {
+    elements.syncCreatorNotesButton.disabled = false;
+  }
+}
+
+function fileToCreatorAssetPayload(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const contentBase64 = result.includes(",") ? result.split(",", 2)[1] : result;
+      resolve({
+        filename: file.name,
+        content_base64: contentBase64,
+      });
+    };
+    reader.onerror = () => reject(new Error(`读取图片失败：${file.name}`));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function attachCreatorAssets() {
+  if (!state.currentRunId) {
+    setNotice(elements.reviewNotice, "请先选择一个任务", true);
+    return;
+  }
+
+  const files = Array.from(elements.creatorAssetInput.files || []);
+  if (!files.length) {
+    setNotice(elements.reviewNotice, "请先选择发布图片", true);
+    return;
+  }
+
+  elements.attachCreatorAssetsButton.disabled = true;
+  elements.creatorAssetInput.disabled = true;
+  setNotice(elements.reviewNotice, "正在绑定发布图片");
+  try {
+    const images = await Promise.all(files.map(fileToCreatorAssetPayload));
+    const data = await apiPost(`/runs/${encodeURIComponent(state.currentRunId)}/creator-assets`, { images });
+    renderRun(data.run);
+    elements.creatorAssetInput.value = "";
+    await refreshShell();
+    setNotice(elements.reviewNotice, `已绑定 ${data.run.summary?.creator_images_count ?? images.length} 张发布图片`);
+  } catch (error) {
+    setNotice(elements.reviewNotice, error.message, true);
+  } finally {
+    renderReviewActions(state.currentRun || {});
+  }
 }
 
 function activateTab(tabName) {
@@ -395,6 +628,7 @@ elements.performanceForm.addEventListener("submit", async (event) => {
   const form = new FormData(elements.performanceForm);
   const payload = {
     post_id: form.get("post_id"),
+    creator_note_id: form.get("creator_note_id"),
     views: Number(form.get("views") || 0),
     likes: Number(form.get("likes") || 0),
     collects: Number(form.get("collects") || 0),
@@ -412,6 +646,39 @@ elements.performanceForm.addEventListener("submit", async (event) => {
   }
 });
 
+elements.syncCreatorNotesButton.addEventListener("click", () => {
+  syncCreatorNotes();
+});
+
+async function resubmitRunFromCurrent() {
+  if (!state.currentRun) {
+    setNotice(elements.formNotice, "请先选择一个任务", true);
+    return;
+  }
+
+  const request = state.currentRun?.request || {};
+  const payload = {
+    topic: request.topic,
+    target_user: request.target_user,
+    format: request.format,
+    engine: request.engine,
+    collect_limit: Number(request.collect_limit || 5),
+    approve: Boolean(request.approve),
+  };
+
+  setNotice(elements.formNotice, "正在用原任务参数重新提交");
+  try {
+    const data = await apiPost("/runs", payload);
+    state.currentRunId = data.run.run_id;
+    renderRun(data.run);
+    await refreshShell();
+    startRunPolling(data.run.run_id);
+    setNotice(elements.formNotice, `新任务 ${data.run.run_id} 已进入队列`);
+  } catch (error) {
+    setNotice(elements.formNotice, error.message, true);
+  }
+}
+
 async function submitReviewAction(action) {
   if (!state.currentRunId) {
     setNotice(elements.reviewNotice, "请先选择一个任务", true);
@@ -421,6 +688,8 @@ async function submitReviewAction(action) {
   const isApprove = action === "approve";
   elements.approveRunButton.disabled = true;
   elements.rejectRunButton.disabled = true;
+  elements.creatorAssetInput.disabled = true;
+  elements.attachCreatorAssetsButton.disabled = true;
   elements.creatorPublishCheckbox.disabled = true;
   setNotice(elements.reviewNotice, isApprove ? "正在保存草稿" : "正在驳回草稿");
 
@@ -445,6 +714,9 @@ async function submitReviewAction(action) {
   }
 }
 
+elements.attachCreatorAssetsButton.addEventListener("click", () => {
+  attachCreatorAssets();
+});
 elements.approveRunButton.addEventListener("click", () => submitReviewAction("approve"));
 elements.rejectRunButton.addEventListener("click", () => submitReviewAction("reject"));
 

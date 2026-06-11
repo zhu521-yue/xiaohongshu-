@@ -604,24 +604,37 @@ def build_review_result(record: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def update_record_performance(
-    post_id: str,
+    post_id: str | None,
     performance_data: Dict[str, Any],
     published_url: str | None = None,
     notes: str | None = None,
     path: Path | None = None,
+    creator_note_id: str | None = None,
 ) -> Dict[str, Any]:
+    clean_post_id = str(post_id or "").strip()
+    clean_creator_note_id = str(creator_note_id or "").strip()
+    if not clean_post_id and not clean_creator_note_id:
+        raise ValueError("Missing required field: post_id or creator_note_id")
+
     with HISTORY_LOCK:
         history = load_history(path)
         records = history.setdefault("records", [])
 
         target = None
-        for record in records:
-            if isinstance(record, dict) and record.get("post_id") == post_id:
-                target = record
-                break
+        if clean_post_id:
+            for record in records:
+                if isinstance(record, dict) and record.get("post_id") == clean_post_id:
+                    target = record
+                    break
+        if target is None and clean_creator_note_id:
+            for record in records:
+                if isinstance(record, dict) and record.get("creator_note_id") == clean_creator_note_id:
+                    target = record
+                    break
 
         if target is None:
-            raise ValueError(f"No operation memory record found for post_id: {post_id}")
+            lookup = clean_post_id or clean_creator_note_id
+            raise ValueError(f"No operation memory record found for post_id or creator_note_id: {lookup}")
 
         clean_performance = {
             "views": _safe_int(performance_data.get("views")),
