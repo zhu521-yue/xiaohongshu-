@@ -76,7 +76,11 @@ def configure_logging(service_name: str) -> logging.Logger:
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
-    if not any(isinstance(handler, logging.StreamHandler) for handler in logger.handlers):
+    if not any(
+        isinstance(handler, logging.StreamHandler)
+        and not isinstance(handler, RotatingFileHandler)
+        for handler in logger.handlers
+    ):
         stream_handler = logging.StreamHandler()
         stream_handler.setFormatter(formatter)
         logger.addHandler(stream_handler)

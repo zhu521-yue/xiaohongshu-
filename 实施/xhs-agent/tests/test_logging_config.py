@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from app.logging_config import configure_logging, redact_sensitive, safe_log_dict
@@ -32,6 +33,32 @@ def test_safe_log_dict_keeps_non_sensitive_values() -> None:
     result = safe_log_dict({"run_id": "run_1", "token": "secret"})
 
     assert result == {"run_id": "run_1", "token": "<redacted>"}
+
+
+def test_configure_logging_adds_file_and_standalone_stream_handlers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XHS_AGENT_LOG_DIR", str(tmp_path))
+    monkeypatch.setenv("XHS_AGENT_LOG_LEVEL", "INFO")
+    monkeypatch.setenv("XHS_AGENT_LOG_MAX_BYTES", "4096")
+    monkeypatch.setenv("XHS_AGENT_LOG_BACKUP_COUNT", "1")
+
+    logger = configure_logging("api")
+
+    file_handlers = [
+        handler
+        for handler in logger.handlers
+        if isinstance(handler, RotatingFileHandler)
+    ]
+    standalone_stream_handlers = [
+        handler
+        for handler in logger.handlers
+        if isinstance(handler, logging.StreamHandler)
+        and not isinstance(handler, RotatingFileHandler)
+    ]
+
+    assert len(file_handlers) == 1
+    assert len(standalone_stream_handlers) == 1
 
 
 def test_configure_logging_writes_to_service_log(tmp_path: Path, monkeypatch) -> None:
