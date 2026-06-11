@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,26 +25,46 @@ def _resolve_project_path(path_value: str) -> Path:
 
 def _check_writable_dir(label: str, path_value: str) -> CheckResult:
     path = _resolve_project_path(path_value)
+    probe_path: Path | None = None
     try:
         path.mkdir(parents=True, exist_ok=True)
-        probe = path / ".write_check"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink(missing_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path,
+            prefix=".write_check.",
+            delete=False,
+        ) as probe:
+            probe_path = Path(probe.name)
+            probe.write("ok")
     except OSError as exc:
         return CheckResult("FAIL", f"{label} not writable: {path} ({exc})")
+    finally:
+        if probe_path is not None:
+            probe_path.unlink(missing_ok=True)
     return CheckResult("PASS", f"{label} writable: {path_value}")
 
 
 def _check_db_parent(label: str, path_value: str) -> CheckResult:
     path = _resolve_project_path(path_value)
     parent = path.parent
+    probe_path: Path | None = None
     try:
         parent.mkdir(parents=True, exist_ok=True)
-        probe = parent / ".write_check"
-        probe.write_text("ok", encoding="utf-8")
-        probe.unlink(missing_ok=True)
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=parent,
+            prefix=".write_check.",
+            delete=False,
+        ) as probe:
+            probe_path = Path(probe.name)
+            probe.write("ok")
     except OSError as exc:
         return CheckResult("FAIL", f"{label} parent not writable: {parent} ({exc})")
+    finally:
+        if probe_path is not None:
+            probe_path.unlink(missing_ok=True)
     return CheckResult("PASS", f"{label} parent writable: {path_value}")
 
 
