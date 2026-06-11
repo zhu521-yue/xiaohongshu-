@@ -20,6 +20,7 @@ const elements = {
   reviewActions: $("#reviewActions"),
   approveRunButton: $("#approveRunButton"),
   rejectRunButton: $("#rejectRunButton"),
+  creatorPublishCheckbox: $("#creatorPublishCheckbox"),
   reviewNotice: $("#reviewNotice"),
   draftTab: $("#draftTab"),
   insightsTab: $("#insightsTab"),
@@ -74,6 +75,16 @@ function setNotice(element, message, isError = false) {
 
 function metric(label, value) {
   return `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? "-")}</strong></div>`;
+}
+
+function creatorPublishStatusLabel(status) {
+  if (status === "success") return "成功";
+  if (status === "failed") return "失败";
+  return "未请求";
+}
+
+function creatorPublishError(summary) {
+  return summary.creator_publish_error || "";
 }
 
 function renderQueue(queue) {
@@ -138,6 +149,8 @@ function renderSummary(run) {
     metric("LLM", summary.llm_generation?.enabled ? "已启用" : "未启用"),
     metric("人审", summary.human_approved ? "通过" : "待审"),
     metric("发布", summary.publish_status),
+    metric("创作发布", creatorPublishStatusLabel(summary.creator_publish_status)),
+    metric("平台笔记", summary.creator_note_id),
   ].join("");
 }
 
@@ -155,8 +168,15 @@ function renderReviewActions(run) {
   elements.reviewActions.hidden = !showReviewArea;
   elements.approveRunButton.disabled = !canReview;
   elements.rejectRunButton.disabled = !canReview;
+  elements.creatorPublishCheckbox.disabled = !canReview;
+  if (!canReview) {
+    elements.creatorPublishCheckbox.checked = false;
+  }
 
-  if (summary.publish_status === "success") {
+  const creatorError = creatorPublishError(summary);
+  if (creatorError) {
+    setNotice(elements.reviewNotice, creatorError, true);
+  } else if (summary.publish_status === "success") {
     setNotice(elements.reviewNotice, "已保存草稿并写入运营记忆");
   } else if (summary.publish_status === "rejected") {
     setNotice(elements.reviewNotice, "人工审核不通过，草稿未保存", true);
@@ -401,13 +421,21 @@ async function submitReviewAction(action) {
   const isApprove = action === "approve";
   elements.approveRunButton.disabled = true;
   elements.rejectRunButton.disabled = true;
+  elements.creatorPublishCheckbox.disabled = true;
   setNotice(elements.reviewNotice, isApprove ? "正在保存草稿" : "正在驳回草稿");
 
   try {
-    const data = await apiPost(`/runs/${encodeURIComponent(state.currentRunId)}/${action}`, {
+    const reviewPayload = {
       feedback: isApprove ? "前端人工审核通过。" : "前端人工审核不通过。",
-    });
+    };
+    if (isApprove && elements.creatorPublishCheckbox.checked) {
+      reviewPayload.creator_publish = true;
+      reviewPayload.creator_publish_private = true;
+      reviewPayload.creator_human_confirmed = true;
+    }
+    const data = await apiPost(`/runs/${encodeURIComponent(state.currentRunId)}/${action}`, reviewPayload);
     renderRun(data.run);
+    elements.creatorPublishCheckbox.checked = false;
     await refreshShell();
     setNotice(elements.reviewNotice, isApprove ? "已保存并写入运营记忆" : "已标记为审核不通过");
   } catch (error) {

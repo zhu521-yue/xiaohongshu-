@@ -1,5 +1,27 @@
 # 当前工程进度
 
+## 2026-06-11 M19c 工作台创作者平台发布入口
+
+本轮目标是把 M19b 已完成的审核后私密发布能力接到工作台前端，让用户在审核区显式勾选后，才请求创作者平台私密发布。
+
+已完成：
+- 工作台审核区新增“同时私密发布到创作者平台”勾选项，默认不勾选，不改变原有本地保存 Markdown 和写入运营记忆行为。
+- 勾选后点击“审核通过并保存”会向后端发送 `creator_publish=true`、`creator_publish_private=true`、`creator_human_confirmed=true`。
+- 未勾选时，审核通过 payload 仍只执行原有本地审核保存链路。
+- 摘要区新增创作发布状态展示：未请求、成功、失败。
+- 摘要区新增平台笔记 ID 展示，后端返回 `creator_note_id` 时可直接看到。
+- 审核提示区会展示后端已经脱敏的 `creator_publish_error`，便于确认创作者平台发布失败原因。
+- 新增 `tests/test_workbench_creator_publish_static.py`，覆盖前端入口、payload 条件和展示契约。
+
+当前限制：
+- 真实 `spider_xhs` 私密发布仍要求 run state 内有真实图片字节；当前工作台还没有图片素材上传或选择入口。
+- 暂不支持视频发布、公开发布、定时发布和失败重试。
+- 当前测试是静态契约测试，尚未额外跑浏览器 UI smoke。
+
+建议下一步：
+1. 进入真实图片素材输入/选择链路，让 `spider_xhs` 私密图文发布具备真实素材来源。
+2. 或先补作品列表同步后的表现数据回填入口，为后续复盘闭环做准备。
+
 ## 2026-06-11 M19b 审核通过后私密发布接入
 
 本轮目标是在不改变前端默认行为的前提下，把创作者平台私密发布接入审核 API。默认审核仍只保存本地 Markdown 和写入运营记忆；只有审批请求显式带 `creator_publish=true`、`creator_publish_private=true`、`creator_human_confirmed=true` 时，才触发创作者平台私密发布。

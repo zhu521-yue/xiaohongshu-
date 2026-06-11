@@ -262,6 +262,11 @@ button:disabled {
   display: none;
 }
 
+.review-publish-option {
+  min-height: 38px;
+  white-space: nowrap;
+}
+
 .danger-button {
   border-color: var(--danger);
   color: var(--danger);
@@ -452,5 +457,14 @@ button:disabled {
 
   .tabs {
     overflow-x: auto;
+  }
+
+  .review-actions {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .review-publish-option {
+    white-space: normal;
   }
 }
