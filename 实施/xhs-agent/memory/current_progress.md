@@ -1,5 +1,28 @@
 # 当前工程进度
 
+## 2026-06-11 creator 发布状态只读同步
+
+本轮目标是在真实 creator v2 作品列表和表现回填烟测之后，补上只读发布状态同步能力。
+
+已完成：
+- 新增 `platforms.creator.get_published_note_status()`，可按 `creator_note_id` 从 creator v2 作品列表中匹配平台笔记并归一化状态。
+- 状态同步复用 creator v2 作品列表，不触发发布、修改、公开、删除或重试。
+- 状态结果包含 `synced` / `not_found` / `unavailable`、可见性提示、权限字段和指标快照。
+- 新增 `app.api.get_creator_note_status()` 和只读 `GET /creator/notes/status?creator_note_id=...` 路由。
+- 工作台作品列表展示平台状态摘要和浏览/赞/藏/评快照，同时保持点击作品填入 `creator_note_id` 的行为。
+
+已验证：
+- `tests/test_creator_platform.py`、`tests/test_creator_note_performance_sync.py`、`tests/test_workbench_creator_notes_static.py` 聚焦测试通过。
+- 全量测试通过：`127 passed`。
+- `compileall app nodes routers platforms memory scripts llm` 通过。
+- `node --check app/static/app.js` 通过。
+- 真实只读状态同步可找到 `creator_note_id=6a2abffc0000000022027f7a`，返回 `status=synced`、标题 `M25 私密发布链路验证`、`visibility_label=仅自己可见`，当前指标快照均为 0。
+
+当前限制：
+- 本轮不是后台自动轮询，不写回主运营记忆。
+- 表现数据仍需通过现有人工表现录入入口写入。
+- 普通沙箱网络会被代理拦截，真实 creator 只读验证需要提权执行；这不影响本地 mock/单元测试。
+
 ## 2026-06-11 真实 creator_note_id 表现回填烟测
 
 本轮目标是在 creator v2 作品列表同步修复后，继续验证真实 `creator_note_id` 是否能走通“作品列表 -> 表现回填”的本地闭环。

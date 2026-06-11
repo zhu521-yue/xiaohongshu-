@@ -957,6 +957,15 @@ def list_creator_notes(limit: int = 20) -> dict[str, Any]:
     return {"creator_notes": creator_platform.list_published_notes(limit=max(0, int(limit)))}
 
 
+def get_creator_note_status(creator_note_id: str, limit: int = 50) -> dict[str, Any]:
+    return {
+        "creator_note_status": creator_platform.get_published_note_status(
+            creator_note_id=creator_note_id,
+            limit=max(0, int(limit)),
+        )
+    }
+
+
 def record_performance(payload: dict[str, Any]) -> dict[str, Any]:
     post_id = str(payload.get("post_id") or "").strip()
     creator_note_id = str(payload.get("creator_note_id") or "").strip()
@@ -1139,6 +1148,12 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
 
         if path == "/queue":
             self._send_json(200, {"ok": True, **queue_status()})
+            return
+
+        if path == "/creator/notes/status":
+            creator_note_id = str(query.get("creator_note_id", [""])[0] or "").strip()
+            note_limit = int(query.get("limit", ["50"])[0] or 50)
+            self._send_json(200, {"ok": True, **get_creator_note_status(creator_note_id, limit=note_limit)})
             return
 
         if path == "/creator/notes":

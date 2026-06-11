@@ -178,6 +178,95 @@ def test_normalize_note_redacts_sensitive_raw_fields() -> None:
     assert "secret-cookie" not in str(note["raw"])
 
 
+def test_get_published_note_status_returns_synced_status(monkeypatch) -> None:
+    monkeypatch.setenv("CREATOR_MODE", "mock")
+
+    def fake_list_published_notes(limit: int = 50):
+        assert limit == 50
+        return {
+            "ok": True,
+            "mode": "spider_xhs",
+            "platform": "xhs_creator",
+            "source": "creator_v2",
+            "notes": [
+                {
+                    "note_id": "note_status_001",
+                    "title": "状态同步测试",
+                    "visibility": "normal",
+                    "raw": {
+                        "id": "note_status_001",
+                        "display_title": "状态同步测试",
+                        "permission_msg": "仅自己可见",
+                        "permission_code": 1,
+                        "tab_status": 1,
+                        "type": "normal",
+                        "view_count": 11,
+                        "likes": 2,
+                        "collected_count": 3,
+                        "comments_count": 4,
+                        "xsec_token": "<redacted>",
+                    },
+                }
+            ],
+        }
+
+    monkeypatch.setattr(creator, "list_published_notes", fake_list_published_notes)
+
+    result = creator.get_published_note_status("note_status_001")
+
+    assert result["ok"] is True
+    assert result["status"] == "synced"
+    assert result["creator_note_id"] == "note_status_001"
+    assert result["title"] == "状态同步测试"
+    assert result["visibility_label"] == "仅自己可见"
+    assert result["platform_type"] == "normal"
+    assert result["permission_code"] == 1
+    assert result["tab_status"] == 1
+    assert result["metrics_snapshot"] == {
+        "views": 11,
+        "likes": 2,
+        "collects": 3,
+        "comments": 4,
+    }
+    assert result["raw"]["xsec_token"] == "<redacted>"
+
+
+def test_get_published_note_status_returns_not_found(monkeypatch) -> None:
+    monkeypatch.setattr(
+        creator,
+        "list_published_notes",
+        lambda limit=50: {"ok": True, "mode": "mock", "platform": "xhs_creator", "notes": []},
+    )
+
+    result = creator.get_published_note_status("missing_note")
+
+    assert result["ok"] is False
+    assert result["status"] == "not_found"
+    assert result["creator_note_id"] == "missing_note"
+    assert "not found" in result["error"]
+
+
+def test_get_published_note_status_returns_unavailable_on_list_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        creator,
+        "list_published_notes",
+        lambda limit=50: {
+            "ok": False,
+            "mode": "spider_xhs",
+            "platform": "xhs_creator",
+            "error": "XHS_CREATOR_COOKIES is required",
+            "notes": [],
+        },
+    )
+
+    result = creator.get_published_note_status("note_status_001")
+
+    assert result["ok"] is False
+    assert result["status"] == "unavailable"
+    assert result["creator_note_id"] == "note_status_001"
+    assert "XHS_CREATOR_COOKIES" in result["error"]
+
+
 def test_mock_mode_does_not_import_spider_modules(monkeypatch) -> None:
     monkeypatch.setenv("CREATOR_MODE", "mock")
     before = set(sys.modules)

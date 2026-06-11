@@ -23,3 +23,10 @@ def test_workbench_fetches_and_renders_creator_notes():
 def test_performance_payload_includes_creator_note_id():
     assert "creator_note_id: form.get(\"creator_note_id\")" in APP_JS
     assert "elements.performanceForm.elements.creator_note_id.value" in APP_JS
+
+
+def test_creator_notes_render_status_summary():
+    assert "renderCreatorNoteStatus(note)" in APP_JS
+    assert "note.visibility_label" in APP_JS
+    assert "metricsSnapshot.views" in APP_JS
+    assert "平台状态" in APP_JS

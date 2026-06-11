@@ -78,6 +78,26 @@ def test_list_creator_notes_returns_adapter_result(isolated_api, monkeypatch) ->
     assert result == {"creator_notes": expected}
 
 
+def test_get_creator_note_status_returns_adapter_result(isolated_api, monkeypatch) -> None:
+    expected = {
+        "ok": True,
+        "status": "synced",
+        "creator_note_id": "mock_note_001",
+        "visibility_label": "仅自己可见",
+    }
+
+    def fake_status(creator_note_id: str, limit: int = 50) -> dict:
+        assert creator_note_id == "mock_note_001"
+        assert limit == 50
+        return expected
+
+    monkeypatch.setattr(api.creator_platform, "get_published_note_status", fake_status)
+
+    result = api.get_creator_note_status("mock_note_001")
+
+    assert result == {"creator_note_status": expected}
+
+
 def test_record_performance_can_match_creator_note_id(isolated_api) -> None:
     saved = operation_store.upsert_record_from_state(_operation_state())
 

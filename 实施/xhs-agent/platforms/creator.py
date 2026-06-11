@@ -369,6 +369,77 @@ def _spider_list_published_notes(limit: int) -> dict[str, Any]:
     }
 
 
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _visibility_label(raw: dict[str, Any], fallback: str) -> str:
+    permission_msg = str(raw.get("permission_msg") or "").strip()
+    if permission_msg:
+        return permission_msg
+    permission_code = raw.get("permission_code")
+    if permission_code == 1 or str(permission_code) == "1":
+        return VISIBILITY_PRIVATE
+    return fallback or ""
+
+
+def _status_from_note(note: dict[str, Any]) -> dict[str, Any]:
+    raw = note.get("raw") if isinstance(note.get("raw"), dict) else {}
+    return {
+        "ok": True,
+        "status": "synced",
+        "creator_note_id": note.get("note_id"),
+        "title": note.get("title") or "",
+        "visibility": note.get("visibility") or "",
+        "visibility_label": _visibility_label(raw, str(note.get("visibility") or "")),
+        "platform_type": raw.get("type") or note.get("visibility") or "",
+        "permission_code": raw.get("permission_code"),
+        "tab_status": raw.get("tab_status"),
+        "metrics_snapshot": {
+            "views": _safe_int(raw.get("view_count")),
+            "likes": _safe_int(raw.get("likes")),
+            "collects": _safe_int(raw.get("collected_count")),
+            "comments": _safe_int(raw.get("comments_count")),
+        },
+        "raw": redact_sensitive(raw),
+    }
+
+
+def get_published_note_status(creator_note_id: str, limit: int = 50) -> dict[str, Any]:
+    clean_note_id = str(creator_note_id or "").strip()
+    if not clean_note_id:
+        return {
+            "ok": False,
+            "status": "not_found",
+            "creator_note_id": "",
+            "error": "creator_note_id is required",
+        }
+
+    list_result = list_published_notes(limit=max(0, int(limit)))
+    if list_result.get("ok") is not True:
+        return {
+            "ok": False,
+            "status": "unavailable",
+            "creator_note_id": clean_note_id,
+            "error": str(list_result.get("error") or "creator notes unavailable"),
+            "raw": redact_sensitive(list_result),
+        }
+
+    for note in list_result.get("notes") or []:
+        if isinstance(note, dict) and str(note.get("note_id") or "") == clean_note_id:
+            return _status_from_note(note)
+
+    return {
+        "ok": False,
+        "status": "not_found",
+        "creator_note_id": clean_note_id,
+        "error": f"creator note not found: {clean_note_id}",
+    }
+
+
 def list_published_notes(limit: int = 20) -> dict[str, Any]:
     mode = _mode()
     _validate_mode(mode)

@@ -111,6 +111,26 @@ function performanceDataSummary(performanceData) {
   ].join(" / ");
 }
 
+function renderCreatorNoteStatus(note) {
+  const raw = note.raw || {};
+  const metricsSnapshot = note.metrics_snapshot || {
+    views: raw.view_count || 0,
+    likes: raw.likes || 0,
+    collects: raw.collected_count || 0,
+    comments: raw.comments_count || 0,
+  };
+  const visibilityLabel = note.visibility_label || raw.permission_msg || note.visibility || "-";
+  return `
+    <div class="creator-note-status">
+      <span>平台状态 ${escapeHtml(visibilityLabel)}</span>
+      <span>浏览 ${escapeHtml(metricsSnapshot.views || 0)}</span>
+      <span>赞 ${escapeHtml(metricsSnapshot.likes || 0)}</span>
+      <span>藏 ${escapeHtml(metricsSnapshot.collects || 0)}</span>
+      <span>评 ${escapeHtml(metricsSnapshot.comments || 0)}</span>
+    </div>
+  `;
+}
+
 function memoryMetaGrid(record) {
   return `
     <div class="memory-meta-grid">
@@ -509,6 +529,7 @@ function renderCreatorNotes(notes) {
           <strong>${escapeHtml(note.title || noteId || "未命名作品")}</strong>
           <span>${escapeHtml(noteId)}</span>
           <span class="muted">${escapeHtml(note.visibility || "-")}</span>
+          ${renderCreatorNoteStatus(note)}
         </button>
       `;
     })
