@@ -1,5 +1,37 @@
 # 当前工程进度
 
+## 2026-06-11 M19b 审核通过后私密发布接入
+
+本轮目标是在不改变前端默认行为的前提下，把创作者平台私密发布接入审核 API。默认审核仍只保存本地 Markdown 和写入运营记忆；只有审批请求显式带 `creator_publish=true`、`creator_publish_private=true`、`creator_human_confirmed=true` 时，才触发创作者平台私密发布。
+
+已完成：
+- `approve_run()` 支持显式 creator publish 参数。
+- 默认审核不调用创作者平台，保持本地 Markdown 草稿保存和运营记忆写入行为。
+- mock 模式私密发布结果会回填 `creator_note_id`、`creator_publish_mode` 和 `creator_publish_status`。
+- 视频内容请求 creator publish 时会保存本地草稿，但 creator publish 标记为失败且不调用适配器。
+- 创作者平台异常不会抹掉本地草稿保存结果，运营记忆仍会写入失败状态。
+- 运营记忆记录 creator publish 元数据：请求状态、发布状态、模式、note ID 和脱敏后的错误。
+- 真实 `spider_xhs` 模式要求有效图片字节；缺图片、非 bytes 占位和假 bytes 会在调用真实适配器前失败。
+- creator publish 错误进入 run summary、state 和 operation memory 前会做基础脱敏，避免 cookie、token、authorization、password、api key 等值直接落盘。
+- 新增 Windows pytest 临时目录权限兼容处理，将测试临时目录切到 `data/pytest_tmp_safe`，并只在该目录范围内放宽 pytest 的 `0o700` mkdir 模式。
+
+已验证：
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_api_creator_review_publish.py -q` 通过，12 个审核发布测试全部通过。
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_creator_platform.py -q` 通过，11 个创作者平台测试全部通过。
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` 通过，当前 82 个测试全部通过。
+- 规格复核通过：M19b Tasks 1-4 符合设计。
+- 代码质量复核通过：真实模式假图片字节、错误脱敏和 pytest Windows 临时目录补丁问题均已修复。
+
+当前限制：
+- 前端暂未新增“同时私密发布到创作者平台”的勾选项；目前需要直接调用审批 API 参数触发。
+- 真实 `spider_xhs` 发布还需要 run state 里有真实图片字节，当前主链路尚未生成或选择实际图片素材。
+- 暂不支持视频、公开发布、定时发布和失败重试。
+
+建议下一步：
+1. 进入 M19c：前端增加“同时私密发布到创作者平台”的明确勾选项，并展示 creator 发布状态。
+2. 或先补真实图片字节生成/选择链路，让 `spider_xhs` 真实私密发布具备素材输入。
+3. 公开发布、视频发布、蒲公英和千帆继续后置。
+
 ## 2026-06-11 M19a 创作者平台连接：私密发布与作品列表基础适配
 
 本轮目标是在不自动公开发布、不引入新平台流程的前提下，先把小红书创作者平台连接封装成低风险适配层：默认 mock，自测可运行；真实 `spider_xhs` 模式必须显式提供创作者 Cookie，且当前只开放私密图文发布和作品列表读取入口。
