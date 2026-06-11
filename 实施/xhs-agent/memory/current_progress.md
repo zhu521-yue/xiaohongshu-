@@ -22,6 +22,18 @@
 2. 配置 `XHS_CREATOR_COOKIES` 后，再执行 1 条 creator 私密图文发布小流量验证。
 3. 私密发布验证成功后，同步作品列表，确认真实 `creator_note_id` 能用于表现回填。
 
+补充进展：
+- 已补充评论噪声过滤规则，新增覆盖“优秀上进的伙伴、提升成长的地方、小红书项目礼物、无偿分享位置不多、自行把握、看下面进”等引流表达。
+- 新增 `tests/test_comment_noise_filtering.py`，锁定真实引流样本不再进入 fallback insight。
+- 复测真实只读采集：搜索和评论读取仍可执行；本次返回 1 条笔记、0 条评论，最终走主题级默认痛点兜底。
+- 再次脱敏检查确认：当前 `实施/xhs-agent/.env`、上级 `.env` 和系统环境中仍没有 `XHS_CREATOR_COOKIES` / `CREATOR_COOKIES`，因此 creator 真实私密发布继续阻塞，尚未执行写入验证。
+- 已验证：全量测试 `119 passed`，compileall 通过，`node --check app/static/app.js` 通过。
+- 之后发现 creator Cookie 被误写入可提交模板 `.env.example`，已将其移入本地 `.env` 的 `XHS_CREATOR_COOKIES`，并清理 `.env.example`，未提交 Cookie。
+- creator 真实模式预检通过：`check_creator_platform.py --mode spider_xhs --check-only` 返回 `ok=true`。
+- 已执行 1 条真实 creator 私密图文发布验证，使用本地 JPEG 素材，返回 `mode=spider_xhs`、`visibility=private`、`note_id=6a2abffc0000000022027f7a`。
+- M25 本地护栏文件 `data/platform_guardrails.json` 已记录当日 `success_count=1`、`stopped=false`。
+- creator 作品列表同步验证未通过：`check_creator_platform.py --mode spider_xhs --list --limit 5` 返回 HTML 404 导致 JSON 解析失败，发布成功但列表同步入口需要后续排查 Spider_XHS creator 列表接口。
+
 ## 2026-06-11 M25 平台安全护栏补齐
 
 本轮目标是在 M20-M24 已经打通 creator 私密发布、图片素材绑定、作品同步、表现回填和失败诊断后，回到从0手册主线，补齐真实平台操作前的最小安全护栏。本轮不扩大公开发布、视频发布、定时发布，也不进入 GraphRAG。
