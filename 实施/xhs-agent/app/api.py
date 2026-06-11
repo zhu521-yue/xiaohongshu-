@@ -7,10 +7,13 @@ and a frontend framework.
 
 from __future__ import annotations
 
+import hmac
 import json
+import logging
 import mimetypes
 import os
 import uuid
+from collections.abc import Mapping
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -32,6 +35,7 @@ RUNS_DIR = PROJECT_ROOT / "data" / "api_runs"
 STATIC_DIR = PROJECT_ROOT / "app" / "static"
 RUN_STORE: LocalRunStore | SQLiteRunStore | None = None
 RUN_QUEUE_SERVICE: LocalRunQueue | SQLiteRunQueue | None = None
+LOGGER = logging.getLogger("xhs_agent.api")
 
 
 def _now_iso() -> str:
@@ -559,6 +563,45 @@ def record_performance(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _configured_api_token() -> str | None:
+    return load_settings().api_token
+
+
+def _extract_request_token(headers: Mapping[str, str]) -> str | None:
+    auth_header = str(headers.get("Authorization") or "").strip()
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+        if token:
+            return token
+
+    direct_token = str(headers.get("X-XHS-Agent-Token") or "").strip()
+    return direct_token or None
+
+
+def _is_public_endpoint(method: str, path: str) -> bool:
+    normalized_method = method.upper()
+    normalized_path = path.rstrip("/") or "/"
+    if normalized_method == "OPTIONS":
+        return True
+    if normalized_method == "GET" and normalized_path == "/health":
+        return True
+    if normalized_method == "GET" and _static_path(normalized_path):
+        return True
+    return False
+
+
+def _request_is_authorized(method: str, path: str, headers: Mapping[str, str]) -> bool:
+    expected_token = _configured_api_token()
+    if not expected_token:
+        return True
+    if _is_public_endpoint(method, path):
+        return True
+    request_token = _extract_request_token(headers)
+    if not request_token:
+        return False
+    return hmac.compare_digest(request_token, expected_token)
+
+
 class XHSAgentAPIHandler(BaseHTTPRequestHandler):
     server_version = "XHSAgentAPI/0.1"
 
@@ -569,9 +612,16 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-XHS-Agent-Token")
         self.end_headers()
         self.wfile.write(body)
+
+    def _ensure_authorized(self, method: str, path: str) -> bool:
+        if _request_is_authorized(method, path, self.headers):
+            return True
+        self._send_error(401, "Unauthorized")
+        LOGGER.warning("unauthorized_request method=%s path=%s", method, path)
+        return False
 
     def _send_file(self, path: Path) -> None:
         if not path.exists() or not path.is_file():
@@ -612,6 +662,9 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
         path = parsed.path.rstrip("/") or "/"
         query = parse_qs(parsed.query)
         limit = _int((query.get("limit") or [20])[0], default=20)
+
+        if not self._ensure_authorized("GET", path):
+            return
 
         static_path = _static_path(path)
         if static_path:
@@ -666,6 +719,9 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
+
+        if not self._ensure_authorized("POST", path):
+            return
 
         try:
             payload = self._read_json()
