@@ -1,5 +1,28 @@
 # 当前工程进度
 
+## 2026-06-11 creator 作品列表 v2 同步修复
+
+本轮目标是在真实私密发布成功后，继续排查 creator 作品列表同步失败，恢复“平台作品列表 -> creator_note_id -> 表现回填”的只读链路。
+
+已完成：
+- 参考了 `D:\codex\project\小红书内容分享\referrence\Spider_XHS-master`，确认参考版 Spider_XHS 的 creator 列表实现仍使用旧 `/api/galaxy/creator/note/user/posted`，不能直接解决当前真实平台列表失败。
+- 从 creator 前端 JS 确认当前真实页面使用 `GET /api/galaxy/v2/creator/note/user/posted`，参数为 `tab=1`、`page=0` 起，响应中的 `page=-1` 表示没有下一页。
+- `platforms/creator.py` 的真实作品列表读取改为优先使用 creator v2 接口，旧 vendor 列表接口仅作为兜底，避免旧接口空正文导致成功结果后仍打印 JSONDecode traceback。
+- 兼容 v2 响应字段：`id`、`displayTitle` / `display_title`、`type`，并继续归一化为 `note_id`、`title`、`visibility`。
+- 作品列表返回的 `raw` 已复用现有敏感字段脱敏工具，避免 `xsec_token`、cookie 等字段暴露到脚本输出或工作台 API。
+- 新增 creator 平台测试覆盖 v2 优先、旧接口失败后的 v2 路径、v2 字段归一化和 raw 脱敏。
+
+已验证：
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_creator_platform.py -q` 通过，当前该文件 14 个测试全部通过。
+- `D:\Anaconda\envs\ContentShare\python.exe .\scripts\check_creator_platform.py --mode spider_xhs --list --limit 5` 通过，返回 `source=creator_v2`。
+- 真实作品列表已包含刚发布的私密笔记 `creator_note_id=6a2abffc0000000022027f7a`，标题为 `M25 私密发布链路验证`，并显示 `permission_msg=仅自己可见`。
+- 同一次真实列表输出中 `xsec_token` 已显示为 `<redacted>`，没有再输出原始 token。
+
+当前限制：
+- 作品列表同步仍是只读能力，不自动抓取表现指标，不做发布状态轮询。
+- 旧 vendor 接口仅保留兜底，后续如果 Spider_XHS 更新，可再评估是否收敛实现。
+- 下一步可用真实 `creator_note_id` 做表现回填验证，然后继续进入主要链路后续任务。
+
 ## 2026-06-11 真实平台小流量验证记录
 
 本轮目标是在 M25 平台安全护栏完成后，先做真实平台小流量验证。当前只执行只读采集验证，没有执行 creator 真实写入。

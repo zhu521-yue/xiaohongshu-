@@ -15,6 +15,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from app.logging_config import redact_sensitive
 from platforms import platform_guardrails
 
 
@@ -26,6 +27,8 @@ load_dotenv(PROJECT_ROOT / ".env")
 PLATFORM = "xhs_creator"
 VISIBILITY_PRIVATE = "private"
 MAX_IMAGE_COUNT = 15
+CREATOR_POSTED_NOTES_V2_API = "/api/galaxy/v2/creator/note/user/posted"
+CREATOR_LIST_MAX_PAGES = 5
 
 
 def _mode() -> str:
@@ -218,16 +221,16 @@ def _normalize_note(raw: Any, index: int) -> dict[str, Any]:
             "note_id": f"unknown_{index}",
             "title": "",
             "visibility": "",
-            "raw": raw,
+            "raw": redact_sensitive(raw),
         }
     note_id = str(raw.get("note_id") or raw.get("id") or raw.get("noteId") or f"unknown_{index}")
-    title = str(raw.get("title") or raw.get("display_title") or raw.get("name") or "")
+    title = str(raw.get("title") or raw.get("displayTitle") or raw.get("display_title") or raw.get("name") or "")
     visibility = str(raw.get("visibility") or raw.get("type") or raw.get("privacy_type") or "")
     return {
         "note_id": note_id,
         "title": title,
         "visibility": visibility,
-        "raw": raw,
+        "raw": redact_sensitive(raw),
     }
 
 
@@ -254,6 +257,75 @@ def _mock_list_published_notes(limit: int) -> dict[str, Any]:
     }
 
 
+def _request_creator_posted_notes_v2(cookies_str: str, page: int) -> dict[str, Any]:
+    with _vendor_working_directory():
+        import requests
+        from xhs_utils.cookie_util import trans_cookies
+        from xhs_utils.http_util import REQUEST_TIMEOUT
+        from xhs_utils.xhs_creator_util import generate_xsc, get_common_headers
+        from xhs_utils.xhs_util import splice_str
+
+        cookies = trans_cookies(cookies_str)
+        a1 = str(cookies.get("a1") or "").strip()
+        if not a1:
+            raise ValueError("creator cookie missing a1")
+
+        splice_api = splice_str(CREATOR_POSTED_NOTES_V2_API, {"tab": "1", "page": str(page)})
+        headers = get_common_headers()
+        headers["Host"] = "creator.xiaohongshu.com"
+        headers["referer"] = "https://creator.xiaohongshu.com/publish/publish?source=official&from=menu&target=image"
+        headers["sec-fetch-site"] = "same-origin"
+        headers.update(generate_xsc(a1, splice_api))
+
+        response = requests.get(
+            f"https://creator.xiaohongshu.com{splice_api}",
+            headers=headers,
+            cookies=cookies,
+            timeout=REQUEST_TIMEOUT,
+        )
+        response.raise_for_status()
+        if not response.text.strip():
+            raise ValueError("creator v2 list returned empty body")
+        return response.json()
+
+
+def _is_success_payload(payload: dict[str, Any]) -> bool:
+    return payload.get("success") is True or payload.get("code") in (0, "0")
+
+
+def _extract_creator_v2_page(payload: dict[str, Any]) -> tuple[list[Any], int]:
+    data = payload.get("data") if isinstance(payload, dict) else {}
+    if not isinstance(data, dict):
+        data = {}
+    notes = data.get("notes")
+    if not isinstance(notes, list):
+        notes = payload.get("notes") if isinstance(payload.get("notes"), list) else []
+    page = data.get("page", payload.get("page", -1))
+    try:
+        next_page = int(page)
+    except (TypeError, ValueError):
+        next_page = -1
+    return notes, next_page
+
+
+def _spider_list_published_notes_v2(cookies: str, limit: int) -> tuple[bool, str, list[Any]]:
+    notes: list[Any] = []
+    page = 0
+    for _ in range(CREATOR_LIST_MAX_PAGES):
+        payload = _request_creator_posted_notes_v2(cookies, page)
+        if not isinstance(payload, dict) or not _is_success_payload(payload):
+            msg = "creator v2 list returned success=False"
+            if isinstance(payload, dict):
+                msg = str(payload.get("msg") or payload.get("message") or msg)
+            return False, msg, notes
+        page_notes, next_page = _extract_creator_v2_page(payload)
+        notes.extend(page_notes)
+        if len(notes) >= limit or next_page == -1:
+            return True, "success", notes[:limit]
+        page = next_page
+    return True, "success", notes[:limit]
+
+
 def _spider_list_published_notes(limit: int) -> dict[str, Any]:
     cookies = _creator_cookies()
     if not cookies:
@@ -264,8 +336,21 @@ def _spider_list_published_notes(limit: int) -> dict[str, Any]:
             "error": "XHS_CREATOR_COOKIES is required when CREATOR_MODE=spider_xhs",
             "notes": [],
         }
-    with _vendor_working_directory():
-        success, msg, raw_notes = _load_creator_api().get_all_publish_note_info(cookies)
+
+    source = "creator_v2"
+    try:
+        success, msg, raw_notes = _spider_list_published_notes_v2(cookies, limit)
+    except Exception as exc:
+        success, msg, raw_notes = False, f"creator v2 list failed: {exc}", []
+
+    if not success:
+        v2_msg = msg
+        try:
+            with _vendor_working_directory():
+                success, msg, raw_notes = _load_creator_api().get_all_publish_note_info(cookies)
+            source = "spider_vendor"
+        except Exception as exc:
+            msg = f"{v2_msg}; legacy creator list failed: {exc}"
     if not success:
         return {
             "ok": False,
@@ -279,6 +364,7 @@ def _spider_list_published_notes(limit: int) -> dict[str, Any]:
         "ok": True,
         "mode": "spider_xhs",
         "platform": PLATFORM,
+        "source": source,
         "notes": notes,
     }
 
