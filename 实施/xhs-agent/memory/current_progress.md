@@ -1,5 +1,37 @@
 # 当前工程进度
 
+## 2026-06-11 M16b API / worker 启动与自测说明
+
+本轮目标是把 M16a 已经实现的 SQLite 队列和独立 worker 入口整理成可操作说明，避免后续只停留在“代码能跑”，但用户不知道如何分别启动 API 和 worker。
+
+已完成：
+- 新增 `docs/m16b-api-worker-startup.md`。
+- 区分默认本地模式和 SQLite 分进程模式。
+- 写明 cmd 与 PowerShell 两套环境变量写法，避免在 cmd 里误用 `$env:...`。
+- 写明 API 进程和 worker 进程必须使用同一组 SQLite DB 路径。
+- 补充 `/queue` 队列状态检查命令。
+- 说明 `run_worker.py --once` 没有任务时返回非零退出码是预期行为。
+- 补充常见问题：任务一直 queued、worker 未设置 SQLite 队列、真实采集 Cookie 要求。
+- 补充 pytest 临时目录权限残留的清理方式。
+
+已验证：
+- `python .\scripts\run_api.py --help` 通过。
+- `python .\scripts\run_worker.py --help` 通过。
+- `python .\scripts\check_api_run.py --help` 通过。
+- `python -m pytest tests/test_sqlite_queue_worker_integration.py -q` 通过。
+- `python -m pytest -q` 通过，当前 27 个测试全部通过。
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+- 使用临时 SQLite DB 启动 API 进程和 worker 进程，`check_api_run.py --engine langgraph` 提交任务后从 `queued` 变为 `success`。
+
+当前阶段判断：
+- 本地开发可以继续用默认 `local` 队列。
+- 需要验证 API/worker 分进程时，使用 `XHS_AGENT_RUN_QUEUE=sqlite` 并分别启动 API 和 worker。
+- 工程链路调试优先使用 `COLLECTOR_MODE=mock` 与 `LLM_MODEL_NAME=mock`，避免真实采集和真实 LLM 干扰基础链路判断。
+
+建议下一步：
+1. M17：补生产部署准备，包括日志落盘、进程守护、基础鉴权和敏感配置治理。
+2. M19：等基础部署能力稳定后，再进入创作者平台私密发布和小红书生态扩展。
+
 ## 2026-06-11 M16a SQLite 持久化运行队列与 worker 入口
 
 本轮目标是在不引入 Redis/RQ/Celery 的前提下，把运行队列从 API 进程内存迁移到 SQLite，并新增独立 worker 脚本，为后续 API/worker 进程拆分铺路。
