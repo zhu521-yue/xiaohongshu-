@@ -21,6 +21,11 @@ class Settings:
     llm_video_max_tokens: int
     llm_review_max_tokens: int
     account_stage:str
+    api_token: str | None
+    log_dir: str
+    log_level: str
+    log_max_bytes: int
+    log_backup_count: int
     run_store_backend: str
     run_db_path: str
     run_queue_backend: str
@@ -65,6 +70,14 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _optional_env(name: str) -> str | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
 def load_settings() -> Settings:
     return Settings(
         llm_api_key=os.getenv("LLM_API_KEY"),
@@ -75,6 +88,11 @@ def load_settings() -> Settings:
         llm_video_max_tokens=_env_int("LLM_VIDEO_MAX_TOKENS", 4000),
         llm_review_max_tokens=_env_int("LLM_REVIEW_MAX_TOKENS", 1200),
         account_stage=os.getenv("ACCOUNT_STAGE", "cold_start"),
+        api_token=_optional_env("XHS_AGENT_API_TOKEN"),
+        log_dir=os.getenv("XHS_AGENT_LOG_DIR", "data/logs"),
+        log_level=os.getenv("XHS_AGENT_LOG_LEVEL", "INFO").strip().upper() or "INFO",
+        log_max_bytes=_env_int("XHS_AGENT_LOG_MAX_BYTES", 1048576),
+        log_backup_count=_env_int("XHS_AGENT_LOG_BACKUP_COUNT", 5),
         run_store_backend=os.getenv("XHS_AGENT_RUN_STORE", "json").strip().lower() or "json",
         run_db_path=os.getenv("XHS_AGENT_RUN_DB_PATH", "data/xhs_agent.sqlite3"),
         run_queue_backend=os.getenv("XHS_AGENT_RUN_QUEUE", "local").strip().lower() or "local",
