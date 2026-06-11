@@ -85,7 +85,9 @@ def _check_sqlite_worker_profile() -> list[CheckResult]:
         ]
     )
 
-    if settings.run_db_path != settings.queue_db_path:
+    run_db_path = _resolve_project_path(settings.run_db_path).resolve()
+    queue_db_path = _resolve_project_path(settings.queue_db_path).resolve()
+    if run_db_path != queue_db_path:
         results.append(CheckResult("WARN", "run DB path and queue DB path differ; verify both processes use matching env"))
     else:
         results.append(CheckResult("PASS", "run DB path and queue DB path match"))
