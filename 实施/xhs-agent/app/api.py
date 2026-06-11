@@ -106,7 +106,7 @@ def _static_path(path: str) -> Path | None:
 
     candidate = (STATIC_DIR / relative_path).resolve()
     static_root = STATIC_DIR.resolve()
-    if not str(candidate).startswith(str(static_root)):
+    if not candidate.is_relative_to(static_root):
         return None
     return candidate
 

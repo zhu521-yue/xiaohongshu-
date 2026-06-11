@@ -30,6 +30,19 @@ def test_static_assets_are_public_when_auth_enabled(monkeypatch) -> None:
     assert api._request_is_authorized("GET", "/static/app.js", {}) is True
 
 
+def test_static_path_rejects_sibling_directory_traversal(monkeypatch, tmp_path: Path) -> None:
+    static_dir = tmp_path / "static"
+    static_dir.mkdir()
+    static_evil_dir = tmp_path / "static_evil"
+    static_evil_dir.mkdir()
+    (static_evil_dir / "file.txt").write_text("not public", encoding="utf-8")
+    monkeypatch.setattr(api, "STATIC_DIR", static_dir)
+    monkeypatch.setenv("XHS_AGENT_API_TOKEN", "secret-token")
+
+    assert api._static_path("/static/../static_evil/file.txt") is None
+    assert api._request_is_authorized("GET", "/static/../static_evil/file.txt", {}) is False
+
+
 def test_protected_endpoint_rejects_missing_token(monkeypatch) -> None:
     monkeypatch.setenv("XHS_AGENT_API_TOKEN", "secret-token")
 
@@ -93,6 +106,24 @@ def _read_json(url: str, headers: dict[str, str] | None = None) -> tuple[int, di
         return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
+def _post_raw_json(
+    url: str,
+    body: bytes,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, dict]:
+    request = Request(
+        url,
+        data=body,
+        headers={"Content-Type": "application/json", **(headers or {})},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        return exc.code, json.loads(exc.read().decode("utf-8"))
+
+
 def test_http_health_public_but_runs_protected(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XHS_AGENT_API_TOKEN", "secret-token")
     monkeypatch.setenv("XHS_AGENT_RUN_STORE", "json")
@@ -120,3 +151,25 @@ def test_http_health_public_but_runs_protected(monkeypatch, tmp_path: Path) -> N
     assert authed_status == 200
     assert authed_data["ok"] is True
     assert authed_data["runs"] == []
+
+
+def test_http_unauthorized_post_with_malformed_json_returns_401(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XHS_AGENT_API_TOKEN", "secret-token")
+    monkeypatch.setenv("XHS_AGENT_RUN_STORE", "json")
+    monkeypatch.setenv("XHS_AGENT_RUN_QUEUE", "local")
+
+    server_urls = _start_test_server(monkeypatch, tmp_path)
+    base_url = next(server_urls)
+    try:
+        status, data = _post_raw_json(f"{base_url}/runs", b"{not-json")
+    finally:
+        try:
+            next(server_urls)
+        except StopIteration:
+            pass
+
+    assert status == 401
+    assert data == {"ok": False, "error": "Unauthorized"}
