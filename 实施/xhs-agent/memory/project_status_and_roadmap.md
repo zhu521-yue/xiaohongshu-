@@ -680,3 +680,27 @@ Worker service
 - 部署、安全、日志、测试要补齐。
 
 下一阶段建议正式进入“数据库与外部队列改造”。
+
+## 8. 2026-06-11 主链真实验证补充
+
+已完成一次真实主链小流量验证，不再只停留在 mock：
+
+- 使用 `COLLECTOR_MODE=spider_xhs`、`engine=langgraph`、`LLM_MODEL_NAME=deepseek-v4-pro`。
+- 非沙箱网络 API 端口：`8013`。
+- 真实 run：`run_c91c97a1d502`。
+- 结果：`success`。
+- 真实采集：1 篇笔记、9 条评论，评论采集错误为 0。
+- 真实 LLM：`openai_compatible`，模型 `deepseek-v4-pro`，总 token 3315。
+- 合规：低风险。
+- 日志：`data/logs/api.log` 已落盘记录。
+
+当前判断更新：
+
+- 主链路“真实采集 -> LangGraph -> 运营记忆召回 -> 真实 LLM -> 合规 -> 待人工审核”已通过小流量验证。
+- 不能再把系统状态概括为“主要还是 mock”。mock 仍是默认回归档，但真实主链已经可跑。
+- 后续重点应从“能否跑通”转为“如何稳定、可观测、可恢复地跑”：进程启动模板、日志、失败分类、脚本编码、Cookie 自检、数据库/队列工程化。
+
+注意事项：
+
+- 普通沙箱网络会导致外部请求走 `127.0.0.1:9` 并失败；真实小红书和真实 LLM 验证必须用非沙箱网络启动 API。
+- `scripts/check_api_run.py` 在 Windows GBK 控制台可能因 emoji 输出触发 `UnicodeEncodeError`，需要修复为 UTF-8 友好输出。

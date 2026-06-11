@@ -11,8 +11,21 @@ from typing import Any
 import requests
 
 
+def _print_line(*values: Any, sep: str = " ", end: str = "\n") -> None:
+    text = sep.join(str(value) for value in values) + end
+    try:
+        sys.stdout.write(text)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        safe_text = text.encode(encoding, errors="backslashreplace").decode(
+            encoding,
+            errors="replace",
+        )
+        sys.stdout.write(safe_text)
+
+
 def _print_json(data: Any) -> None:
-    print(json.dumps(data, ensure_ascii=False, indent=2))
+    _print_line(json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def build_headers(api_token: str | None) -> dict[str, str]:
@@ -65,14 +78,14 @@ def main() -> int:
     try:
         response = requests.post(f"{base_url}/runs", json=payload, headers=headers, timeout=30)
     except requests.RequestException as exc:
-        print(f"API request failed: {exc}")
+        _print_line(f"API request failed: {exc}")
         return 2
 
-    print("submit_status:", response.status_code)
+    _print_line("submit_status:", response.status_code)
     try:
         data = response.json()
     except ValueError:
-        print(response.text)
+        _print_line(response.text)
         return 2
 
     if not data.get("ok"):
@@ -81,8 +94,8 @@ def main() -> int:
 
     run = data["run"]
     run_id = run["run_id"]
-    print("run_id:", run_id)
-    print("initial_status:", run.get("status"))
+    _print_line("run_id:", run_id)
+    _print_line("initial_status:", run.get("status"))
 
     deadline = time.time() + args.timeout
     final = run
@@ -92,7 +105,7 @@ def main() -> int:
             poll_response = requests.get(f"{base_url}/runs/{run_id}", headers=headers, timeout=30)
             poll_data = poll_response.json()
         except (requests.RequestException, ValueError) as exc:
-            print(f"poll failed: {exc}")
+            _print_line(f"poll failed: {exc}")
             return 2
 
         if not poll_data.get("ok"):
@@ -101,14 +114,14 @@ def main() -> int:
 
         final = poll_data["run"]
         status = final.get("status")
-        print(f"poll_{index}: {status}")
+        _print_line(f"poll_{index}: {status}")
         if status in {"success", "failed"}:
             break
 
         index += 1
         time.sleep(args.interval)
     else:
-        print(f"timeout waiting for run: {run_id}")
+        _print_line(f"timeout waiting for run: {run_id}")
         return 2
 
     _print_json(final)

@@ -937,3 +937,57 @@
 - 后续优先级排序。
 
 该文件是后续 `/resume` 或重新进入项目时的全局上下文入口；`current_progress.md` 继续用于记录每轮小步变更。
+
+## 2026-06-11 主链真实采集 + LangGraph 验证
+
+本轮目标是把验证重心从 mock 和前端补洞拉回主链：真实 PC 采集、LangGraph 编排、真实 LLM、日志落盘。
+
+执行过程：
+- 先检查 `.env`：`COLLECTOR_MODE=spider_xhs`，`LLM_MODEL_NAME=deepseek-v4-pro`，`LLM_BASE_URL=https://api.deepseek.com`，PC Cookie 和 creator Cookie 均已存在。
+- 发现旧 8010 API 进程实际继承了 mock 环境变量，导致 run 虽然成功但 `llm_generation.error=LLM is in mock mode`，采集结果也是 mock 样本。
+- 在 8012 用显式真实环境变量启动 API 后，确认不再回到 mock，但普通沙箱网络会把外部请求导向 `127.0.0.1:9`，导致小红书和 DeepSeek 都出现 `ProxyError`。
+- 按权限规则提权后，在 8013 启动真实网络 API，重新提交同一条 LangGraph 主链。
+
+真实主链验证结果：
+- API：`http://127.0.0.1:8013`
+- run：`run_c91c97a1d502`
+- 状态：`success`
+- 引擎：`langgraph`
+- 采集：`raw_notes_count=1`，`raw_comments_count=9`，`comment_fetch_errors_count=0`
+- 评论洞察：`comment_insights_count=1`，`pain_points_count=1`
+- 运营记忆召回：`retrieved_memory_count=5`
+- LLM：`enabled=true`，`provider_mode=openai_compatible`，`model=deepseek-v4-pro`
+- token：`prompt_tokens=987`，`completion_tokens=2328`，`total_tokens=3315`
+- 合规：`compliance_risk_level=low`
+- 首条真实笔记标题：`新人起号靠的不是日更而是关键词`
+- 生成首标题：`小红书选题先别急着判断，这几个坑要避开`
+- 日志：`data/logs/api.log` 已记录 8013 启动和 `run_c91c97a1d502` 轮询请求。
+
+额外发现：
+- `scripts/check_api_run.py` 在 Windows GBK 控制台打印包含 `⭐` 的 JSON 时会触发 `UnicodeEncodeError`。主链本身已成功，后续建议单独修复该脚本的输出编码，避免真实结果包含 emoji 时误报命令失败。
+- 后续验证真实网络链路时，应优先使用非沙箱网络启动 API；普通沙箱只适合 mock 或本地接口验证。
+
+下一步建议：
+1. 旧的 8010/8012 API 进程已停止，目前只保留 8013 真实网络实例，防止误连到 mock 或沙箱网络实例。
+2. 修复 `scripts/check_api_run.py` 的 Windows 输出编码问题。
+3. 基于 8013 继续做“审核通过保存草稿 -> 人工确认 -> 私密发布/表现回填”的主链后半段验证。
+
+## 2026-06-11 check_api_run Windows 输出编码修复
+
+本轮目标是修复 `scripts/check_api_run.py` 在 Windows GBK 控制台打印真实 run JSON 时，遇到 emoji 等非 GBK 字符会抛出 `UnicodeEncodeError` 的问题。
+
+已完成：
+- 在 `tests/test_check_api_run_auth.py` 增加回归测试，模拟 `encoding="gbk"`、`errors="strict"` 的 stdout，打印包含 `⭐` 的 JSON。
+- 在 `scripts/check_api_run.py` 增加 `_print_line()`，脚本输出优先按原文本写出；如果 stdout 编码不支持某些字符，则用 `backslashreplace` 转义不可编码字符，避免脚本崩溃。
+- 将脚本内直接 `print()` 的地方切换为 `_print_line()`，覆盖提交状态、轮询状态、错误文本和最终 JSON。
+
+已验证：
+- RED：新增测试在旧实现下复现 `UnicodeEncodeError`。
+- GREEN：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests\test_check_api_run_auth.py::test_print_json_handles_gbk_stdout_with_emoji -q` 通过。
+- 相关测试：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests\test_check_api_run_auth.py -q`，4 passed。
+- 编译：`D:\Anaconda\envs\ContentShare\python.exe -m compileall scripts\check_api_run.py` 通过。
+
+当前仍需注意：
+- 真实小红书和真实 LLM 验证需要非沙箱网络，否则会出现 `127.0.0.1:9` 代理失败。
+- 8013 是当前保留的真实网络 API 实例；不要误连旧的 8010/8012。
+- 下一步主链后半段建议继续验证：审核保存草稿 -> 私密发布/状态同步 -> 表现回填。
