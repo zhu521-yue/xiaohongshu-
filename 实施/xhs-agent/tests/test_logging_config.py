@@ -4,7 +4,40 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
+import pytest
+
 from app.logging_config import configure_logging, redact_sensitive, safe_log_dict
+
+
+@pytest.fixture(autouse=True)
+def clean_api_logger_handlers():
+    logger = logging.getLogger("xhs_agent.api")
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+        handler.close()
+
+    yield
+
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+        handler.close()
+
+
+def _file_handlers(logger: logging.Logger) -> list[RotatingFileHandler]:
+    return [
+        handler
+        for handler in logger.handlers
+        if isinstance(handler, RotatingFileHandler)
+    ]
+
+
+def _standalone_stream_handlers(logger: logging.Logger) -> list[logging.StreamHandler]:
+    return [
+        handler
+        for handler in logger.handlers
+        if isinstance(handler, logging.StreamHandler)
+        and not isinstance(handler, RotatingFileHandler)
+    ]
 
 
 def test_redact_sensitive_masks_nested_secret_values() -> None:
@@ -45,20 +78,45 @@ def test_configure_logging_adds_file_and_standalone_stream_handlers(
 
     logger = configure_logging("api")
 
-    file_handlers = [
-        handler
-        for handler in logger.handlers
-        if isinstance(handler, RotatingFileHandler)
-    ]
-    standalone_stream_handlers = [
-        handler
-        for handler in logger.handlers
-        if isinstance(handler, logging.StreamHandler)
-        and not isinstance(handler, RotatingFileHandler)
-    ]
+    assert len(_file_handlers(logger)) == 1
+    assert len(_standalone_stream_handlers(logger)) == 1
 
+
+def test_configure_logging_repeated_same_dir_does_not_duplicate_handlers(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("XHS_AGENT_LOG_DIR", str(tmp_path))
+    monkeypatch.setenv("XHS_AGENT_LOG_LEVEL", "INFO")
+    monkeypatch.setenv("XHS_AGENT_LOG_MAX_BYTES", "4096")
+    monkeypatch.setenv("XHS_AGENT_LOG_BACKUP_COUNT", "1")
+
+    first_logger = configure_logging("api")
+    second_logger = configure_logging("api")
+
+    assert first_logger is second_logger
+    assert len(_file_handlers(second_logger)) == 1
+    assert len(_standalone_stream_handlers(second_logger)) == 1
+
+
+def test_configure_logging_changed_dir_replaces_stale_file_handler(
+    tmp_path: Path, monkeypatch
+) -> None:
+    first_log_dir = tmp_path / "first"
+    second_log_dir = tmp_path / "second"
+
+    monkeypatch.setenv("XHS_AGENT_LOG_DIR", str(first_log_dir))
+    monkeypatch.setenv("XHS_AGENT_LOG_LEVEL", "INFO")
+    monkeypatch.setenv("XHS_AGENT_LOG_MAX_BYTES", "4096")
+    monkeypatch.setenv("XHS_AGENT_LOG_BACKUP_COUNT", "1")
+    configure_logging("api")
+
+    monkeypatch.setenv("XHS_AGENT_LOG_DIR", str(second_log_dir))
+    logger = configure_logging("api")
+
+    file_handlers = _file_handlers(logger)
     assert len(file_handlers) == 1
-    assert len(standalone_stream_handlers) == 1
+    assert file_handlers[0].baseFilename == str(second_log_dir / "api.log")
+    assert len(_standalone_stream_handlers(logger)) == 1
 
 
 def test_configure_logging_writes_to_service_log(tmp_path: Path, monkeypatch) -> None:
