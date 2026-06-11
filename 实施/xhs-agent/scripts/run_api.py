@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.api import run_server  # noqa: E402
+from app.logging_config import configure_logging  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,6 +23,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = build_parser().parse_args()
+    logger = configure_logging("api")
+    logger.info("api_starting host=%s port=%s", args.host, args.port)
     run_server(host=args.host, port=args.port)
 
 

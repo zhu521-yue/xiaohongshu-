@@ -393,7 +393,9 @@ def approve_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str,
     state.update(review_performance(state))
     state.update(write_operation_memory(state))
 
-    return _save_reviewed_run(record, state, review_action="approved")
+    reviewed = _save_reviewed_run(record, state, review_action="approved")
+    LOGGER.info("run_approved run_id=%s", run_id)
+    return reviewed
 
 
 def reject_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -429,7 +431,9 @@ def reject_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str, 
         }
     )
 
-    return _save_reviewed_run(record, state, review_action="rejected")
+    reviewed = _save_reviewed_run(record, state, review_action="rejected")
+    LOGGER.info("run_rejected run_id=%s", run_id)
+    return reviewed
 
 
 def _execute_run(run_id: str) -> None:
@@ -504,6 +508,12 @@ def submit_run(payload: dict[str, Any]) -> dict[str, Any]:
     record = _run_record(run_id, request_payload, status="queued")
     _save_run(record)
     _enqueue_run(run_id)
+    LOGGER.info(
+        "run_submitted run_id=%s engine=%s format=%s",
+        run_id,
+        request_payload["engine"],
+        request_payload["format"],
+    )
     return record
 
 
@@ -753,13 +763,17 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
             self._send_error(500, str(exc))
 
     def log_message(self, format: str, *args: Any) -> None:
-        timestamp = _now_iso()
-        print(f"[{timestamp}] {self.address_string()} {format % args}")
+        LOGGER.info(
+            "http_request client=%s message=%s",
+            self.address_string(),
+            format % args,
+        )
 
 
 def run_server(host: str = "127.0.0.1", port: int = 8010) -> None:
     _recover_pending_runs()
     server = ThreadingHTTPServer((host, port), XHSAgentAPIHandler)
+    LOGGER.info("api_listening url=http://%s:%s", host, port)
     print(f"XHS Agent API listening on http://{host}:{port}")
     server.serve_forever()
 

@@ -74,3 +74,49 @@ def test_run_worker_once_returns_false_when_no_job() -> None:
     assert did_work is False
     assert queue.succeeded == []
     assert queue.failed == []
+
+
+class FakeLogger:
+    def __init__(self) -> None:
+        self.messages: list[tuple[str, str]] = []
+
+    def info(self, message: str, *args) -> None:
+        self.messages.append(("info", message % args if args else message))
+
+    def warning(self, message: str, *args) -> None:
+        self.messages.append(("warning", message % args if args else message))
+
+
+def test_run_worker_once_logs_claim_and_success() -> None:
+    queue = FakeQueue("run_1")
+    logger = FakeLogger()
+    records = {"run_1": {"status": "success", "error": None}}
+
+    did_work = run_worker.run_once(
+        queue=queue,
+        worker_id="worker-a",
+        execute_run=lambda run_id: None,
+        load_run=lambda run_id: records[run_id],
+        logger=logger,
+    )
+
+    assert did_work is True
+    assert ("info", "worker_claimed run_id=run_1 worker_id=worker-a") in logger.messages
+    assert ("info", "worker_succeeded run_id=run_1 worker_id=worker-a") in logger.messages
+
+
+def test_run_worker_once_logs_failure() -> None:
+    queue = FakeQueue("run_1")
+    logger = FakeLogger()
+    records = {"run_1": {"status": "failed", "error": "graph failed"}}
+
+    did_work = run_worker.run_once(
+        queue=queue,
+        worker_id="worker-a",
+        execute_run=lambda run_id: None,
+        load_run=lambda run_id: records[run_id],
+        logger=logger,
+    )
+
+    assert did_work is True
+    assert ("warning", "worker_failed run_id=run_1 worker_id=worker-a error=graph failed") in logger.messages
