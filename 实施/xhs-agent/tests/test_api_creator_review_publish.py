@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from conftest import _should_relax_windows_pytest_tmp_mode
 from app import api
 from app.run_store import LocalRunStore
 from memory import operation_store
@@ -302,3 +303,74 @@ def test_real_creator_mode_rejects_non_byte_image_placeholders_before_adapter(is
     assert reviewed["summary"]["publish_status"] == "success"
     assert reviewed["summary"]["creator_publish_status"] == "failed"
     assert "image bytes" in reviewed["summary"]["creator_publish_error"]
+
+
+def test_real_creator_mode_rejects_fake_byte_image_payloads_before_adapter(isolated_api, monkeypatch) -> None:
+    calls = []
+    monkeypatch.setenv("CREATOR_MODE", "spider_xhs")
+    monkeypatch.setattr(
+        api.creator_platform,
+        "publish_private_image_text",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    record = _generated_record("run_creator_real_fake_bytes")
+    record["state"]["creator_image_bytes"] = [b"fake-image-bytes"]
+    monkeypatch.setattr(api, "_load_run", lambda run_id: record if run_id == record["run_id"] else None)
+
+    reviewed = api.approve_run(
+        record["run_id"],
+        {
+            "feedback": "approved",
+            "creator_publish": True,
+            "creator_publish_private": True,
+            "creator_human_confirmed": True,
+        },
+    )
+
+    assert calls == []
+    assert reviewed["summary"]["publish_status"] == "success"
+    assert reviewed["summary"]["creator_publish_status"] == "failed"
+    assert "image bytes" in reviewed["summary"]["creator_publish_error"]
+
+
+def test_creator_adapter_error_is_redacted_in_summary_and_operation_memory(isolated_api, monkeypatch) -> None:
+    def raise_adapter_error(*args, **kwargs):
+        raise RuntimeError("cookie=a1=secret; token=abc123 authorization=Bearer xyz")
+
+    monkeypatch.setattr(api.creator_platform, "publish_private_image_text", raise_adapter_error)
+    record = _generated_record("run_creator_redacted_error")
+    _save_generated(record)
+
+    reviewed = api.approve_run(
+        record["run_id"],
+        {
+            "feedback": "approved",
+            "creator_publish": True,
+            "creator_publish_private": True,
+            "creator_human_confirmed": True,
+        },
+    )
+
+    summary_error = reviewed["summary"]["creator_publish_error"]
+    result_error = reviewed["state"]["creator_publish_result"]["error"]
+    assert "[REDACTED]" in summary_error
+    assert "[REDACTED]" in result_error
+    for secret in ("secret", "abc123", "Bearer xyz"):
+        assert secret not in summary_error
+        assert secret not in result_error
+
+    history = operation_store.load_history()
+    saved = history["records"][-1]
+    memory_text = repr(saved)
+    assert "[REDACTED]" in memory_text
+    for secret in ("secret", "abc123", "Bearer xyz"):
+        assert secret not in memory_text
+
+
+def test_windows_pytest_tmp_mode_relaxation_is_limited_to_safe_temp_root() -> None:
+    safe_root = Path("data") / "pytest_tmp_safe"
+    assert _should_relax_windows_pytest_tmp_mode(safe_root / "case", 0o700) is True
+    assert _should_relax_windows_pytest_tmp_mode(safe_root, 0o700) is True
+    assert _should_relax_windows_pytest_tmp_mode(Path("data") / "other_tmp" / "case", 0o700) is False
+    assert _should_relax_windows_pytest_tmp_mode(Path("unrelated"), 0o700) is False
+    assert _should_relax_windows_pytest_tmp_mode(safe_root / "case", 0o755) is False

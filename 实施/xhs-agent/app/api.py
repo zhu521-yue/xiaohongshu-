@@ -12,6 +12,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 import uuid
 from collections.abc import Mapping
 from datetime import datetime
@@ -37,6 +38,15 @@ STATIC_DIR = PROJECT_ROOT / "app" / "static"
 RUN_STORE: LocalRunStore | SQLiteRunStore | None = None
 RUN_QUEUE_SERVICE: LocalRunQueue | SQLiteRunQueue | None = None
 LOGGER = logging.getLogger("xhs_agent.api")
+_MIN_CREATOR_IMAGE_BYTES = 32
+_IMAGE_MAGIC_BYTES = (
+    b"\x89PNG\r\n\x1a\n",
+    b"\xff\xd8\xff",
+    b"GIF87a",
+    b"GIF89a",
+    b"RIFF",
+    b"BM",
+)
 
 
 def _now_iso() -> str:
@@ -390,19 +400,31 @@ def _creator_publish_not_requested() -> dict[str, Any]:
     }
 
 
+def _sanitize_creator_error(error: Any) -> str:
+    text = str(error)
+    replacements = [
+        r"(?i)\bauthorization\s*[:=]\s*Bearer\s+[^\s,;]+",
+        r"(?i)\b(cookie|token|password|api[_-]?key|apikey|authorization)\s*[:=]\s*[^\s,;]+",
+    ]
+    for pattern in replacements:
+        text = re.sub(pattern, lambda match: f"{match.group(1) if match.lastindex else 'authorization'}=[REDACTED]", text)
+    return text
+
+
 def _creator_publish_failed(error: str, *, requested: bool = True) -> dict[str, Any]:
     mode = creator_platform.creator_mode()
+    sanitized_error = _sanitize_creator_error(error)
     return {
         "creator_publish_requested": requested,
         "creator_publish_status": "failed",
         "creator_publish_mode": mode,
         "creator_note_id": None,
-        "creator_publish_error": str(error),
+        "creator_publish_error": sanitized_error,
         "creator_publish_result": {
             "ok": False,
             "mode": mode,
             "platform": "xhs_creator",
-            "error": str(error),
+            "error": sanitized_error,
         },
     }
 
@@ -458,11 +480,22 @@ def _creator_images_from_state(state: dict[str, Any], *, mode: str) -> list[Any]
         for image in images:
             if not isinstance(image, (bytes, bytearray, memoryview)):
                 raise ValueError("creator publishing requires image bytes in state when CREATOR_MODE=spider_xhs")
-            image_bytes.append(bytes(image))
+            payload = bytes(image)
+            if not _is_supported_creator_image_bytes(payload):
+                raise ValueError("creator publishing requires valid image bytes in state when CREATOR_MODE=spider_xhs")
+            image_bytes.append(payload)
         return image_bytes
     if mode == "mock":
         return [b"mock-image-bytes"]
     raise ValueError("creator publishing requires image bytes in state when CREATOR_MODE=spider_xhs")
+
+
+def _is_supported_creator_image_bytes(payload: bytes) -> bool:
+    if len(payload) < _MIN_CREATOR_IMAGE_BYTES:
+        return False
+    if payload.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a", b"BM")):
+        return True
+    return payload.startswith(b"RIFF") and len(payload) >= 12 and payload[8:12] == b"WEBP"
 
 
 def _build_creator_image_text_draft(state: dict[str, Any], *, mode: str) -> dict[str, Any]:
