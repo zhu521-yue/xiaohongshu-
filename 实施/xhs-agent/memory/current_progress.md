@@ -1,5 +1,27 @@
 # 当前工程进度
 
+## 2026-06-11 真实平台小流量验证记录
+
+本轮目标是在 M25 平台安全护栏完成后，先做真实平台小流量验证。当前只执行只读采集验证，没有执行 creator 真实写入。
+
+已验证：
+- 工作树干净，M20-M25 两个提交已落地。
+- `scripts/check_runtime_config.py --profile local` 通过：核心模块可导入、日志目录可写、run store 为 JSON、run queue 为 local；仅提示本地 API token 为空。
+- `scripts/check_collector.py` 预检通过：`.env` 存在、PC Cookie 存在、vendor 路径存在、`XHS_Apis` 可导入。
+- `scripts/check_creator_platform.py --mode spider_xhs --check-only` 未通过：缺少 `XHS_CREATOR_COOKIES`，因此没有执行真实 creator 私密发布。
+- 真实只读搜索通过：主题 `小红书新手选题方法`，limit=1，返回 1 条脱敏笔记。
+- 真实评论读取通过：对 1 条笔记读取 10 条评论，保留 1 条、过滤 9 条，并生成 1 条 comment insight / pain point。
+- 首次未提权执行真实搜索时失败，原因是沙箱代理指向 `127.0.0.1:9`；提权后网络链路正常。
+
+暴露问题：
+- 保留的 1 条评论仍明显像“提升成长地方/无偿分享/看下面进4”这类引流噪声，说明评论噪声过滤还需补充规则。
+- creator 真实链路目前缺少 `XHS_CREATOR_COOKIES`，只能完成预检失败确认，不能做真实私密发布验证。
+
+下一步建议：
+1. 补充评论噪声过滤规则，覆盖“优秀上进的伙伴们、无偿分享、位置不多、自行把握、看下面进”等引流表达。
+2. 配置 `XHS_CREATOR_COOKIES` 后，再执行 1 条 creator 私密图文发布小流量验证。
+3. 私密发布验证成功后，同步作品列表，确认真实 `creator_note_id` 能用于表现回填。
+
 ## 2026-06-11 M25 平台安全护栏补齐
 
 本轮目标是在 M20-M24 已经打通 creator 私密发布、图片素材绑定、作品同步、表现回填和失败诊断后，回到从0手册主线，补齐真实平台操作前的最小安全护栏。本轮不扩大公开发布、视频发布、定时发布，也不进入 GraphRAG。
