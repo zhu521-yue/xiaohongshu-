@@ -274,3 +274,31 @@ def test_real_creator_mode_without_image_bytes_records_failed_without_calling_ad
     assert reviewed["summary"]["creator_publish_requested"] is True
     assert reviewed["summary"]["creator_publish_status"] == "failed"
     assert "image bytes" in reviewed["summary"]["creator_publish_error"]
+
+
+def test_real_creator_mode_rejects_non_byte_image_placeholders_before_adapter(isolated_api, monkeypatch) -> None:
+    calls = []
+    monkeypatch.setenv("CREATOR_MODE", "spider_xhs")
+    monkeypatch.setattr(
+        api.creator_platform,
+        "publish_private_image_text",
+        lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+    record = _generated_record("run_creator_real_placeholder_images")
+    record["state"]["creator_images"] = ["not-bytes"]
+    _save_generated(record)
+
+    reviewed = api.approve_run(
+        record["run_id"],
+        {
+            "feedback": "approved",
+            "creator_publish": True,
+            "creator_publish_private": True,
+            "creator_human_confirmed": True,
+        },
+    )
+
+    assert calls == []
+    assert reviewed["summary"]["publish_status"] == "success"
+    assert reviewed["summary"]["creator_publish_status"] == "failed"
+    assert "image bytes" in reviewed["summary"]["creator_publish_error"]

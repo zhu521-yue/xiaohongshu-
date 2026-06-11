@@ -452,7 +452,14 @@ def _creator_description_from_state(state: dict[str, Any]) -> str:
 def _creator_images_from_state(state: dict[str, Any], *, mode: str) -> list[Any]:
     images = state.get("creator_image_bytes") or state.get("creator_images") or []
     if isinstance(images, list) and images:
-        return images
+        if mode == "mock":
+            return images
+        image_bytes = []
+        for image in images:
+            if not isinstance(image, (bytes, bytearray, memoryview)):
+                raise ValueError("creator publishing requires image bytes in state when CREATOR_MODE=spider_xhs")
+            image_bytes.append(bytes(image))
+        return image_bytes
     if mode == "mock":
         return [b"mock-image-bytes"]
     raise ValueError("creator publishing requires image bytes in state when CREATOR_MODE=spider_xhs")
