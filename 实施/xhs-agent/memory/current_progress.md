@@ -1,5 +1,23 @@
 # 当前工程进度
 
+## 2026-06-11 真实 creator_note_id 表现回填烟测
+
+本轮目标是在 creator v2 作品列表同步修复后，继续验证真实 `creator_note_id` 是否能走通“作品列表 -> 表现回填”的本地闭环。
+
+已验证：
+- 当前主运营记忆中没有 `creator_note_id=6a2abffc0000000022027f7a` 的记录，因为这条真实私密发布是适配层小流量验证，不是通过完整 run 审核链路产生的记录。
+- 使用真实 creator v2 作品列表只读同步，能找到目标笔记：
+  - `creator_note_id=6a2abffc0000000022027f7a`
+  - 标题：`M25 私密发布链路验证`
+- 在系统临时目录创建临时运营记忆文件，登记同一个真实 `creator_note_id` 后调用 `record_performance()`，可按平台笔记 ID 匹配并更新记录。
+- 烟测结果为 `status=performance_recorded`，`performance_data={views:0, likes:0, collects:0, comments:0, follows:0}`，`performance_score=0`。
+- 表现分为 0 是因为当前平台返回该私密笔记指标均为 0，不是回填链路失败。
+
+当前判断：
+- M21 的 `creator_note_id` 表现回填能力对真实平台 ID 可用。
+- 若希望主运营记忆中长期保留这条真实笔记，需要后续通过完整 run 审核发布链路生成记录，或明确允许把本次适配层小流量验证登记为一条运营记忆记录。
+- 下一步可以继续进入主要链路后续任务；优先建议补发布状态轮询或主链路真实 run 发布验证，二者都属于 M4 真实平台端到端的后半段。
+
 ## 2026-06-11 creator 作品列表 v2 同步修复
 
 本轮目标是在真实私密发布成功后，继续排查 creator 作品列表同步失败，恢复“平台作品列表 -> creator_note_id -> 表现回填”的只读链路。
