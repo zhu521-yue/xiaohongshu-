@@ -1,5 +1,44 @@
 # 当前工程进度
 
+## 2026-06-11 M17a 最小生产护栏
+
+本轮目标是在不引入 Docker、Nginx、systemd、Redis 或新 Web 框架的前提下，给当前 API/worker 增加最小生产护栏。
+
+已完成：
+- API token 鉴权支持，默认本地开发关闭，设置 `XHS_AGENT_API_TOKEN` 后保护 `/runs`、`/queue`、审核、表现录入和记忆查询等非公开 API。
+- `/health`、`/`、`/static/*` 和 `OPTIONS` 保持公开，便于健康检查、页面加载和 CORS preflight。
+- 修复静态目录公开边界，避免 `/static/../static_evil/...` 这类 sibling 目录被误判为公开静态资源。
+- API 与 worker 增加日志落盘，默认写入 `data/logs/api.log` 和 `data/logs/worker.log`。
+- 增加敏感字段脱敏工具，避免 token、cookie、api key、authorization、password 等值进入结构化日志。
+- API access log 不再记录 query string 和 fragment，避免 URL 参数泄露。
+- 新增 `scripts/check_runtime_config.py`，支持 `local`、`sqlite-worker`、`production-lite` 三种配置检查。
+- 自检脚本使用唯一临时探针检查目录可写性，不会覆盖或删除已有 `.write_check` 文件。
+- `scripts/check_api_run.py` 支持 `--api-token`，可验证带鉴权的 API。
+- `.env.example` 补充 API token 和日志配置。
+- 新增 `docs/m17a-production-guardrails.md`，说明本地、带鉴权模式、运行配置检查和日志位置。
+
+已验证：
+- `python -m pytest -q` 通过，当前 56 个测试全部通过。
+- `python -m compileall app nodes routers platforms memory scripts llm` 通过。
+- `python .\scripts\check_runtime_config.py --profile local` 通过，输出 `WARN api token empty: auth disabled`。
+- `python .\scripts\check_runtime_config.py --profile production-lite` 在 token 为空时按预期退出 1，并输出 `FAIL production-lite requires XHS_AGENT_API_TOKEN`。
+- 带 `XHS_AGENT_API_TOKEN=test-token` 的 API 烟测通过：未带 token 的 `POST /runs` 返回 `401`，带 `--api-token test-token` 的 `check_api_run.py` 能完成 mock LangGraph run，并从 `queued/running` 变为 `success`。
+
+验证环境说明：
+- 当前工具默认 `python` 指向 `D:\Anaconda\python.exe`，该环境没有直接安装 `langgraph`。
+- `requirements.txt` 已声明 `langgraph==1.2.1`，`D:\Anaconda\envs\ContentShare\python.exe` 可以导入 `langgraph`。
+- 本轮最终测试使用 `PYTHONPATH=D:\Anaconda\envs\ContentShare\Lib\site-packages` 让当前工具默认 Python 读取 ContentShare 依赖后通过。用户在已激活 `(ContentShare)` 的终端里执行时不需要额外设置该 `PYTHONPATH`。
+- Windows 下 pytest 临时目录偶尔会残留不可访问 ACL；本轮已清理 `data\pytest_tmp` 和 M17a 临时 SQLite/pytest 文件。
+
+当前阶段判断：
+- 当前系统仍不是完整生产部署，但已经具备最小 server-facing 护栏：鉴权、日志、脱敏、自检和带 token 烟测。
+- 仅设置 `XHS_AGENT_API_TOKEN` 不等于可以直接公网暴露；真正对公网部署前仍需要 HTTPS、反向代理、进程守护、备份、账号体系和更完整的密钥治理。
+
+建议下一步：
+1. M17b：补进程启动模板和部署清单，继续保持不引入重型新组件。
+2. M18：需要更高并发时再进入 Redis/RQ 或 Celery。
+3. M19：基础部署稳定后，再推进小红书创作者平台私密发布和作品列表同步。
+
 ## 2026-06-11 M16b API / worker 启动与自测说明
 
 本轮目标是把 M16a 已经实现的 SQLite 队列和独立 worker 入口整理成可操作说明，避免后续只停留在“代码能跑”，但用户不知道如何分别启动 API 和 worker。
