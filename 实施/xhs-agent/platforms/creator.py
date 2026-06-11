@@ -15,6 +15,8 @@ from typing import Any
 
 from dotenv import load_dotenv
 
+from platforms import platform_guardrails
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 VENDOR_ROOT = PROJECT_ROOT / "vendor" / "Spider_XHS"
@@ -149,9 +151,19 @@ def _extract_note_id(raw: Any, fallback_seed: str) -> str:
 
 
 def _spider_publish_private_image_text(draft: dict[str, Any]) -> dict[str, Any]:
-    cookies = _creator_cookies()
-    if not cookies:
-        raise RuntimeError("XHS_CREATOR_COOKIES is required when CREATOR_MODE=spider_xhs")
+    runtime = check_creator_runtime()
+    if runtime.get("ok") is not True:
+        return {
+            "ok": False,
+            "mode": "spider_xhs",
+            "platform": PLATFORM,
+            "visibility": VISIBILITY_PRIVATE,
+            "error": str(runtime.get("error") or "creator runtime check failed"),
+            "raw": runtime,
+        }
+
+    platform_guardrails.ensure_creator_publish_allowed()
+    platform_guardrails.sleep_before_creator_publish()
 
     note_info = {
         "title": draft["title"],
@@ -163,9 +175,15 @@ def _spider_publish_private_image_text(draft: dict[str, Any]) -> dict[str, Any]:
         "topics": draft["topics"],
         "images": draft["images"],
     }
-    with _vendor_working_directory():
-        success, msg, raw = _load_creator_api().post_note(note_info, cookies)
+    try:
+        with _vendor_working_directory():
+            success, msg, raw = _load_creator_api().post_note(note_info, _creator_cookies())
+    except Exception as exc:
+        platform_guardrails.record_creator_publish_failure(str(exc))
+        raise
+
     if not success:
+        platform_guardrails.record_creator_publish_failure(str(msg or "creator publish returned success=False"))
         return {
             "ok": False,
             "mode": "spider_xhs",
@@ -174,6 +192,7 @@ def _spider_publish_private_image_text(draft: dict[str, Any]) -> dict[str, Any]:
             "error": str(msg),
             "raw": raw,
         }
+    platform_guardrails.record_creator_publish_success()
     return {
         "ok": True,
         "mode": "spider_xhs",

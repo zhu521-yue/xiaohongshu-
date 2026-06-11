@@ -1,5 +1,36 @@
 # 当前工程进度
 
+## 2026-06-11 M25 平台安全护栏补齐
+
+本轮目标是在 M20-M24 已经打通 creator 私密发布、图片素材绑定、作品同步、表现回填和失败诊断后，回到从0手册主线，补齐真实平台操作前的最小安全护栏。本轮不扩大公开发布、视频发布、定时发布，也不进入 GraphRAG。
+
+已完成：
+- 新增 `platforms/platform_guardrails.py`，记录真实 creator 发布当日成功次数、同日停手原因和发布前随机延时。
+- creator 真实 `spider_xhs` 发布前会先执行 runtime 自检、当日发布许可检查和随机延时。
+- creator 真实发布成功后会累计当日成功次数。
+- creator 真实发布 `success=False` 或异常后会记录停手原因，阻止同日后续连续发布。
+- creator 日发布限制默认 `3`，并在代码层限制为个位数最大 `9`。
+- 新增 collector runtime 自检：mock 直接通过，`spider_xhs` 模式检查 PC Cookie 和 Spider_XHS API 导入能力。
+- 统一 collector 入口在 `spider_xhs` 模式下会先执行 runtime 自检，避免缺 Cookie 时半路失败。
+- `.env.example` 新增 M25 护栏配置：`XHS_PLATFORM_GUARDRAIL_PATH`、`XHS_CREATOR_DAILY_LIMIT`、`XHS_CREATOR_MIN_DELAY_SECONDS`、`XHS_CREATOR_MAX_DELAY_SECONDS`。
+- 新增 `tests/test_platform_safety_guardrails.py`，覆盖当日发布限制、失败停手、creator Cookie 前置自检、发布前延时和 collector Cookie 自检。
+- 新增中文设计与计划文档：
+  - `docs/superpowers/specs/2026-06-11-platform-safety-guardrails-design.md`
+  - `docs/superpowers/plans/2026-06-11-platform-safety-guardrails.md`
+
+当前限制：
+- 停手状态是本地 JSON 护栏，不是平台端状态轮询。
+- 停手按自然日隔离，下一日自动进入新日期计数。
+- Cookie 自检只确认本地配置和导入能力，不发真实登录态探测请求；真实 Cookie 是否已过期仍需后续真实小流量验证。
+- 真实发布状态轮询、公开发布、视频发布和定时发布仍未完成。
+
+用户自测建议：
+1. mock 模式下运行全量测试，确认本地链路不受护栏影响。
+2. 真实采集前配置 `COLLECTOR_MODE=spider_xhs` 和 `XHS_COOKIES_PC`，先运行采集检查脚本。
+3. 真实 creator 私密发布前配置 `CREATOR_MODE=spider_xhs` 和 `XHS_CREATOR_COOKIES`。
+4. 保持 `XHS_CREATOR_DAILY_LIMIT=3` 或更低，先只做 1 条私密发布验证。
+5. 如果出现 `success=False`、风控或异常，先查看 `data/platform_guardrails.json` 和 run 失败诊断，不要连续重试。
+
 ## 2026-06-11 M24 结构化失败分类
 
 本轮目标是在 M23 工作台运行诊断的基础上，把失败诊断从前端文本判断升级为后端结构化字段，让 API、运行记录和前端共用同一套失败分类。

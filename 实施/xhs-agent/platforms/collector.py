@@ -12,20 +12,42 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from platforms.mock_collector import collect_topic_insights as collect_mock_topic_insights
-from platforms.spider_xhs_collector import collect_topic_insights as collect_spider_topic_insights
+from platforms.spider_xhs_collector import (
+    check_collector_runtime as check_spider_collector_runtime,
+    collect_topic_insights as collect_spider_topic_insights,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 
 
+def _mode() -> str:
+    return os.getenv("COLLECTOR_MODE", "mock").strip().lower() or "mock"
+
+
+def check_collector_runtime() -> dict:
+    mode = _mode()
+
+    if mode == "mock":
+        return {"ok": True, "mode": "mock", "platform": "mock_collector"}
+
+    if mode == "spider_xhs":
+        return check_spider_collector_runtime()
+
+    return {"ok": False, "mode": mode, "platform": "collector", "error": f"Unsupported COLLECTOR_MODE: {mode}"}
+
+
 def collect_topic_insights(topic: str, limit: int = 5) -> dict:
-    mode = os.getenv("COLLECTOR_MODE", "mock").strip().lower()
+    mode = _mode()
 
     if mode == "mock":
         return collect_mock_topic_insights(topic, limit=limit)
 
     if mode == "spider_xhs":
+        runtime = check_collector_runtime()
+        if runtime.get("ok") is not True:
+            raise RuntimeError(f"collector runtime check failed: {runtime.get('error')}")
         return collect_spider_topic_insights(topic, limit=limit)
 
     raise ValueError(f"Unsupported COLLECTOR_MODE: {mode}")

@@ -94,6 +94,26 @@ def _load_cookies() -> str:
     return cookies
 
 
+def check_collector_runtime() -> dict[str, Any]:
+    try:
+        cookies = _load_cookies()
+    except Exception as exc:
+        return {"ok": False, "mode": "spider_xhs", "platform": "xhs_pc", "error": str(exc)}
+
+    try:
+        _load_xhs_api()
+    except Exception as exc:
+        return {"ok": False, "mode": "spider_xhs", "platform": "xhs_pc", "error": str(exc)}
+
+    return {
+        "ok": True,
+        "mode": "spider_xhs",
+        "platform": "xhs_pc",
+        "cookie_present": bool(cookies),
+        "vendor_root": str(VENDOR_ROOT),
+    }
+
+
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)))
