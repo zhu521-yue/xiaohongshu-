@@ -1,5 +1,45 @@
 # 当前工程进度
 
+## 2026-06-11 M19a 创作者平台连接：私密发布与作品列表基础适配
+
+本轮目标是在不自动公开发布、不引入新平台流程的前提下，先把小红书创作者平台连接封装成低风险适配层：默认 mock，自测可运行；真实 `spider_xhs` 模式必须显式提供创作者 Cookie，且当前只开放私密图文发布和作品列表读取入口。
+
+已完成：
+- 新增 `platforms/creator.py`，集中封装创作者平台适配逻辑，支持 `mock` 与 `spider_xhs` 两种模式。
+- 新增 `publish_private_image_text()`，仅允许私密图文草稿/私密笔记发布，并要求 `human_confirmed=True` 作为写入类操作硬门槛。
+- 新增 `list_published_notes()`，用于作品列表同步的基础读取，返回统一的 `note_id`、`title`、`visibility` 和原始数据。
+- 新增 `check_creator_runtime()`，用于在真实平台模式下预检 `XHS_CREATOR_COOKIES`、vendor 目录、`NODE_PATH` 和创作者 API 导入能力。
+- 新增 `scripts/check_creator_platform.py`，提供命令行自测入口：`--check-only`、`--publish-private`、`--list`。
+- 新增 `tests/test_creator_platform.py`，覆盖 mock 发布、人工确认门槛、图片数量限制、真实模式缺 Cookie 保护、真实模式导入错误暴露、mock 列表同步和脚本退出码。
+- 更新 `.env.example`，补充 `CREATOR_MODE` 和 `XHS_CREATOR_COOKIES`。
+- 新增 `docs/m19a-creator-platform-connection.md`，说明 mock 自测、真实平台预检、私密发布边界和当前限制。
+
+已验证：
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_creator_platform.py -q` 通过，10 个创作者平台测试全部通过。
+- `D:\Anaconda\envs\ContentShare\python.exe .\scripts\check_creator_platform.py --mode mock --publish-private --human-confirmed` 通过，返回 mock 私密笔记 ID。
+- `D:\Anaconda\envs\ContentShare\python.exe .\scripts\check_creator_platform.py --mode mock --list --limit 2` 通过，返回 2 条 mock 作品记录。
+- `D:\Anaconda\envs\ContentShare\python.exe .\scripts\check_creator_platform.py --mode spider_xhs --check-only` 在未配置 `XHS_CREATOR_COOKIES` 时按预期退出 1，并提示必须提供 Cookie。
+- 使用临时 `XHS_CREATOR_COOKIES=a1=fake` 执行 `--mode spider_xhs --check-only` 通过，确认当前 `ContentShare` 环境可以导入 Spider_XHS 创作者 API；该检查不发发布请求。
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` 通过，当前 69 个测试全部通过。
+- `D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes routers platforms memory scripts llm` 通过。
+
+当前阶段判断：
+- 当前系统已经从“只能生成内容并人工发布”推进到“具备创作者平台连接的基础封装和低风险自测入口”。
+- 真实平台写入仍受到人工确认、Cookie 预检和私密发布边界限制，暂不做自动公开发布。
+- 这一步还没有接入主工作流，生成内容后不会自动调用创作者平台发布；当前只是先把平台边界和自测能力做出来。
+
+尚未完成：
+- 主链路中的人工审核通过后，自动调用私密发布适配器。
+- 发布结果回填到 run、运营记忆和作品表现记录。
+- 图片上传、视频上传和真实素材路径管理的完整验证。
+- 公开发布、定时发布、失败重试、发布状态轮询。
+- 蒲公英、千帆等其他小红书生态平台的数据连接。
+
+建议下一步：
+1. 进入 M19b：把 M19a 适配器接入现有审核/运行结果链路，但仍保持私密发布和人工确认。
+2. 发布成功后，把 `note_id`、发布时间、发布模式写回 run store 与运营记忆。
+3. 暂不处理公开发布和其他平台，等私密发布闭环稳定后再扩展。
+
 ## 2026-06-11 M17b 启动模板与部署清单
 
 本轮目标是在不引入 Docker、Nginx、systemd、Redis 或新进程管理器的前提下，把当前 API/worker 的启动方式固化为可重复执行的 Windows/PowerShell 模板，并明确使用 `ContentShare` Python 环境。
