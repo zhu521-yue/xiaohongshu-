@@ -107,6 +107,46 @@ h3 {
   white-space: nowrap;
 }
 
+.platform-status {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.platform-status-item {
+  display: grid;
+  gap: 4px;
+  min-height: 58px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: #fbfcf9;
+}
+
+.platform-status-item span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.platform-status-item strong {
+  color: var(--accent);
+}
+
+.platform-status-item p {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.platform-status-item.blocked {
+  border-color: var(--danger);
+  background: var(--danger-weak);
+}
+
+.platform-status-item.blocked strong,
+.platform-status-item.blocked p {
+  color: var(--danger);
+}
+
 .status-running,
 .status-queued {
   background: var(--warn-weak);

@@ -31,7 +31,9 @@ from memory.operation_store import load_history, operation_memory_path, update_r
 from nodes.memory_node import write_operation_memory
 from nodes import publish_node
 from nodes.review_node import review_performance
+from platforms import collector as collector_platform
 from platforms import creator as creator_platform
+from platforms import platform_guardrails
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -294,6 +296,14 @@ def _creator_image_file_bytes_from_state(state: dict[str, Any]) -> list[bytes]:
 
 def queue_status() -> dict[str, Any]:
     return _run_queue_service().status()
+
+
+def platform_status() -> dict[str, Any]:
+    return {
+        "collector_runtime": collector_platform.check_collector_runtime(),
+        "creator_runtime": creator_platform.check_creator_runtime(),
+        "creator_publish_guardrail": platform_guardrails.check_creator_publish_allowed(),
+    }
 
 
 def _state_summary(state: dict[str, Any]) -> dict[str, Any]:
@@ -1148,6 +1158,10 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
 
         if path == "/queue":
             self._send_json(200, {"ok": True, **queue_status()})
+            return
+
+        if path == "/platform/status":
+            self._send_json(200, {"ok": True, "platform_status": platform_status()})
             return
 
         if path == "/creator/notes/status":

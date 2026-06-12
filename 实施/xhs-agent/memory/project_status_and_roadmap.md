@@ -765,3 +765,26 @@ Worker service
 - GPT-image-2 生图测试尚未通过。
 - 工程链路已就绪，当前阻塞是 `.env` 中的 OpenAI key 无效，或 key 与 `OPENAI_BASE_URL=https://api.openai.com/v1` 不匹配。
 - 更换有效 key 或设置正确中转 `OPENAI_BASE_URL` 后，应优先重跑生图绑定，再继续私密发布验证。
+
+## 12. 2026-06-12 M25 平台护栏状态入口
+
+用户决定先暂停生图问题，继续主流程。当前推进点：
+
+- 底层已有创作者发布日限、失败停手、发布前 Cookie 自检、发布前随机延时、采集端 Cookie 自检。
+- 新增 `GET /platform/status` 只读接口，汇总：
+  - `collector_runtime`
+  - `creator_runtime`
+  - `creator_publish_guardrail`
+- 该接口不触发真实采集或发布，只用于主链提交/发布前检查当前平台状态。
+- 相关回归 `47 passed`，`app/api.py` 编译通过。
+
+最新补充：
+
+- 工作台已接入 `/platform/status`，侧边栏展示采集端、创作者端和发布护栏状态。
+- `scripts/check_workbench_ui.py` 已增加平台状态面板检查。
+- 最新验证：全量测试 `143 passed`，`compileall app platforms scripts` 通过，desktop/mobile 浏览器 smoke 均为 `ok=true` 且无 console error。
+
+下一步：
+
+- 优先补“发布状态轮询/等待”，解决真实私密发布后作品列表短暂 `not_found` 时的误判。
+- 之后再进入采集候选池评分，解决真实采集时误选低互动/低评论笔记的问题，为后续 RAG 入库质量打基础。

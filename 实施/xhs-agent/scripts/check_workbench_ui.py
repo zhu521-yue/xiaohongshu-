@@ -160,6 +160,8 @@ def main() -> int:
             _require_text(page, "#queueStrip", "运行", timeout_ms)
             _require_text(page, ".form-panel h2", "新建任务", timeout_ms)
             _require_text(page, ".result-panel h2", "任务结果", timeout_ms)
+            page.get_by_role("heading", name="平台状态").wait_for(state="visible", timeout=timeout_ms)
+            page.locator("#platformStatus").wait_for(state="visible", timeout=timeout_ms)
             page.get_by_role("heading", name="队列").wait_for(state="visible", timeout=timeout_ms)
             page.get_by_role("heading", name="运行记录").wait_for(state="visible", timeout=timeout_ms)
             _require_text(page, ".performance-panel h2", "表现录入", timeout_ms)

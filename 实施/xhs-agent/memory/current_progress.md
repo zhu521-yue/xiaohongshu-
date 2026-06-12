@@ -1131,3 +1131,129 @@
 1. 先更新 `.env` 中的 `OPENAI_API_KEY`，或补充正确的 `OPENAI_BASE_URL`。
 2. 更新后重新执行同一条 `generate_creator_image_asset.py` 命令。
 3. 生图绑定成功后，再检查生成图片质量，并继续执行私密发布、状态同步、表现回填。
+
+## 2026-06-12 GPT-image-2 中转服务新 key 诊断
+
+本轮用户更换图片服务 key 后重新验证生图链路。
+
+当前 `.env` 图片配置：
+- `OPENAI_BASE_URL=https://yituoshiai.com/v1`
+- `OPENAI_IMAGE_MODEL=gpt-image-2`
+- `OPENAI_IMAGE_SIZE=1024x1536`
+- `OPENAI_IMAGE_QUALITY=medium`
+- `OPENAI_IMAGE_FORMAT=png`
+- 新 key 可被脚本加载，未在日志中输出明文。
+
+诊断结果：
+- `GET https://yituoshiai.com/v1/models` 返回 `200`，JSON 正常，模型列表包含 `gpt-image-2`。
+- 使用主链脚本执行真实生图绑定：
+  - `scripts/generate_creator_image_asset.py --base-url http://127.0.0.1:8014 --run-id run_fda76a64a278 --bind`
+  - 返回 `HTTP 503`，错误：`No available compatible accounts`。
+- 直接调用 `POST /v1/images/generations` 做最小参数诊断：
+  - payload 仅包含 `model=gpt-image-2`、`prompt`、`size=1024x1536`
+  - 返回同样 `HTTP 503 No available compatible accounts`。
+- 将 size 改为 `1024x1024` 后仍返回同样 `HTTP 503 No available compatible accounts`。
+
+当前判断：
+- 新 key 不再表现为 `invalid_api_key`，认证和 `/models` 访问是通的。
+- 失败不由本项目脚本的 `quality`、`output_format` 或 `1024x1536` 尺寸导致。
+- 根因更可能在中转服务侧：`gpt-image-2` 虽然出现在模型列表，但默认分组下没有可用于 `/images/generations` 的兼容账号/通道，或后台没有给当前 key 分配可用图片生成账号。
+
+下一步建议：
+1. 在中转服务后台确认当前 key 所属分组是否已绑定可用的 `gpt-image-2` 图片生成通道。
+2. 如果后台实际模型名不是 `gpt-image-2`，需要把 `.env` 的 `OPENAI_IMAGE_MODEL` 改成服务商给出的真实可用模型名。
+3. 通道可用后再重跑 `generate_creator_image_asset.py`，成功后继续图片质量检查和私密发布链路。
+
+## 2026-06-12 GPT-image-2 第二个中转服务 key 诊断
+
+本轮用户再次更换图片服务 key 后重新验证生图链路。
+
+当前 `.env` 图片配置：
+- `OPENAI_BASE_URL=https://api.xingyuzhida.me/v1`
+- `OPENAI_IMAGE_MODEL=gpt-image-2`
+- `OPENAI_IMAGE_SIZE=1024x1536`
+- `OPENAI_IMAGE_QUALITY=medium`
+- `OPENAI_IMAGE_FORMAT=png`
+- 新 key 可被脚本加载，未在日志中输出明文。
+
+诊断结果：
+- `https://api.xingyuzhida.me/models` 返回 HTML，不是 API JSON。
+- `https://api.xingyuzhida.me/v1/models` 返回 `200`，JSON 正常。
+- `/v1/models` 中包含 `gpt-image-1`、`gpt-image-1.5`、`gpt-image-2`，当前 `OPENAI_IMAGE_MODEL=gpt-image-2` 存在。
+- 修正 `.env` 的 `OPENAI_BASE_URL` 为带 `/v1` 后，主链脚本访问 `/v1/images/generations`。
+- 主链脚本仍返回 `HTTP 503`：`No available compatible accounts`。
+- 直接调用 `/v1/images/generations` 做最小参数诊断：
+  - `size=1024x1536` 返回同样 `HTTP 503 No available compatible accounts`。
+  - `size=1024x1024` 返回同样 `HTTP 503 No available compatible accounts`。
+
+当前判断：
+- 新 key 认证可用，base URL 修正后也能访问模型列表。
+- 失败不是由项目脚本额外参数、图片格式、质量参数或竖图尺寸引起。
+- 根因仍更可能是中转服务侧：当前 key/分组没有可用于 `gpt-image-2` 图片生成的兼容账号或通道。
+
+下一步建议：
+1. 在中转服务后台确认当前 key 的 `gpt-image-2` 图片生成通道是否真的启用。
+2. 如果服务商要求使用 `gpt-image-1` 或 `gpt-image-1.5`，可临时把 `.env` 的 `OPENAI_IMAGE_MODEL` 改成对应模型再测。
+3. 服务端通道可用后，再重跑 `generate_creator_image_asset.py` 完成图片生成和绑定。
+
+## 2026-06-12 M25 主流程护栏：平台状态只读入口
+
+本轮按用户要求先暂停生图问题，继续主流程。对照现有代码后确认：
+- 创作者平台发布日限、失败停手、发布前 Cookie 自检、发布前随机延时已有实现和测试。
+- 采集端 PC Cookie 自检已有实现和测试。
+- 主流程缺口之一是这些运行状态不够前置可见，工作台或脚本只能在真正提交/发布时才看到问题。
+
+已完成：
+- 新增 `app.api.platform_status()`。
+- 新增 `GET /platform/status`，返回只读状态，不触发真实采集或真实发布。
+- 返回内容包括：
+  - `collector_runtime`
+  - `creator_runtime`
+  - `creator_publish_guardrail`
+- 该接口默认走现有 API 鉴权规则，和 `/queue` 一样不是公开健康检查。
+- 新增 `tests/test_api_platform_status.py` 覆盖函数聚合和 HTTP 路由。
+
+已验证：
+- RED：新增测试在旧代码下失败，缺少 `collector_platform` 和 `/platform/status`。
+- GREEN：实现后 `tests/test_api_platform_status.py` 通过。
+- 相关回归：
+  - `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests\test_api_platform_status.py tests\test_platform_safety_guardrails.py tests\test_api_auth.py tests\test_api_creator_review_publish.py tests\test_creator_platform.py -q`
+  - 结果：`47 passed`
+- 编译：
+  - `D:\Anaconda\envs\ContentShare\python.exe -m compileall app\api.py`
+  - 结果：通过
+
+当前判断：
+- M25 的底层护栏已部分可用，并且现在有了 API 层只读状态入口。
+- 下一步可以把工作台或检查脚本接到 `/platform/status`，让真实主链提交/私密发布前先显示 Cookie、creator 状态和发布日限/停手原因。
+
+## 2026-06-12 M25 主流程护栏：工作台平台状态可视化
+
+本轮继续主流程，承接 `/platform/status` 只读入口，把采集端、创作者端和发布护栏状态前置展示到工作台。
+
+已完成：
+- 工作台侧边栏新增“平台状态”面板。
+- 前端 `refreshShell()` 并行请求 `GET /platform/status`，并渲染：
+  - 采集端 runtime 状态。
+  - 创作者端 runtime 状态。
+  - 发布护栏允许/暂停状态、当日发布计数或停手原因。
+- 状态面板只读，不触发真实采集、真实发布或作品列表同步。
+- `scripts/check_workbench_ui.py` 增加平台状态面板 smoke 检查，避免后续 UI 改动漏掉该面板。
+- 新增/更新测试：
+  - `tests/test_api_platform_status.py`
+  - `tests/test_workbench_platform_status_static.py`
+
+已验证：
+- TDD RED/GREEN：先让 smoke 脚本平台状态覆盖测试失败，再补脚本检查并转绿。
+- 局部回归：`25 passed`。
+- 全量测试：`143 passed`。
+- 编译检查：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app platforms scripts` 通过。
+- 浏览器 smoke：
+  - desktop：`ok=true`，`console_errors=[]`
+  - mobile：`ok=true`，`console_errors=[]`
+- `git diff --check` 返回 0，仅有 Git 换行提示。
+
+当前判断：
+- M25 平台护栏已经从底层检查推进到 API 和工作台可见。
+- 下一条主链任务建议做“发布状态轮询/等待”，因为真实私密发布后作品列表可能短暂 `not_found`，目前只查一次会造成误判。
+- 另一个后续主线是采集候选池评分，解决真实采集时误选低互动/低评论笔记的问题；但它更适合排在发布状态轮询之后。

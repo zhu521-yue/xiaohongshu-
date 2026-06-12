@@ -9,6 +9,7 @@ const $ = (selector) => document.querySelector(selector);
 const elements = {
   serviceStatus: $("#serviceStatus"),
   queueStrip: $("#queueStrip"),
+  platformStatus: $("#platformStatus"),
   queueDetail: $("#queueDetail"),
   runForm: $("#runForm"),
   submitButton: $("#submitButton"),
@@ -244,6 +245,52 @@ function renderQueue(queue) {
   `;
 }
 
+function runtimeLabel(runtime) {
+  if (!runtime) return "未知";
+  return runtime.ok === true ? "正常" : "异常";
+}
+
+function guardrailLabel(guardrail) {
+  if (!guardrail) return "未知";
+  return guardrail.allowed === true ? "允许发布" : "暂停发布";
+}
+
+function platformStatusItem(label, status, detail, isBlocked = false) {
+  return `
+    <div class="platform-status-item ${isBlocked ? "blocked" : ""}">
+      <span>${escapeHtml(label)}</span>
+      <strong>${escapeHtml(status)}</strong>
+      <p>${escapeHtml(detail || "-")}</p>
+    </div>
+  `;
+}
+
+function renderPlatformStatus(platformStatus) {
+  const collector = platformStatus.collector_runtime || {};
+  const creator = platformStatus.creator_runtime || {};
+  const guardrail = platformStatus.creator_publish_guardrail || {};
+  elements.platformStatus.innerHTML = [
+    platformStatusItem(
+      "采集端",
+      runtimeLabel(collector),
+      collector.error || `${collector.mode || "-"} / ${collector.platform || "-"}`,
+      collector.ok !== true,
+    ),
+    platformStatusItem(
+      "创作者端",
+      runtimeLabel(creator),
+      creator.error || `${creator.mode || "-"} / ${creator.platform || "-"}`,
+      creator.ok !== true,
+    ),
+    platformStatusItem(
+      "发布护栏",
+      guardrailLabel(guardrail),
+      guardrail.reason || `今日 ${guardrail.success_count ?? 0}/${guardrail.daily_limit ?? "-"}`,
+      guardrail.allowed !== true,
+    ),
+  ].join("");
+}
+
 function compactTime(value) {
   if (!value) return "-";
   return String(value).replace("T", " ");
@@ -469,11 +516,13 @@ function startRunPolling(runId) {
 }
 
 async function refreshShell() {
-  const [queue, runs, memory] = await Promise.all([
+  const [platform, queue, runs, memory] = await Promise.all([
+    apiGet("/platform/status"),
     apiGet("/queue"),
     apiGet("/runs?limit=12"),
     apiGet("/memory/records?limit=8"),
   ]);
+  renderPlatformStatus(platform.platform_status || {});
   renderQueue(queue);
   renderRunList(runs.runs || []);
   renderMemory(memory.records || []);
