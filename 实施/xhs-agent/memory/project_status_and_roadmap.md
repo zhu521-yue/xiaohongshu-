@@ -704,3 +704,64 @@ Worker service
 
 - 普通沙箱网络会导致外部请求走 `127.0.0.1:9` 并失败；真实小红书和真实 LLM 验证必须用非沙箱网络启动 API。
 - `scripts/check_api_run.py` 在 Windows GBK 控制台可能因 emoji 输出触发 `UnicodeEncodeError`，需要修复为 UTF-8 友好输出。
+
+## 9. 采集策略与 RAG 基础方向
+
+后续 RAG 的基础不应是“互动最高笔记”的简单堆叠，而应是“高相关 + 高质量互动”的候选池。
+
+采集排序建议：
+
+- 主题相关度优先。
+- 评论数、点赞数、收藏数作为互动因子。
+- 评论质量作为核心因子，优先保留真实问题、真实反对意见、真实使用场景。
+- 对互粉、引流、水军、抽奖、低相关情绪评论做惩罚或过滤。
+- 兼顾近期性和账号体量，避免只学习大号爆款或过旧内容。
+
+实施时机：
+
+- 当前先继续主链后半段验证。
+- 主链稳定后，进入“候选池评分 + 评论质量评分 + RAG 入库结构”专项。
+- GraphRAG 应建立在稳定采集和稳定表现回填之后，而不是先做复杂图谱。
+
+## 10. 2026-06-12 主链后半段真实闭环补充
+
+已完成一次完整后半段真实闭环：
+
+- 新 run：`run_d2572a74de62`。
+- 绑定图片素材：`creator_images_count=1`。
+- 创作者平台私密发布：`creator_publish_status=success`。
+- 模式：`spider_xhs`。
+- 平台笔记 ID：`6a2adc0c000000003502cd53`。
+- 状态同步：`status=synced`，`visibility_label=仅自己可见`。
+- 表现回填：`op_247efc20de96` 更新为 `performance_recorded`，初始表现分 0。
+
+当前判断更新：
+
+- 主链路已从“真实采集 + LangGraph + 真实 LLM”推进到“私密发布 + 平台状态同步 + 表现回填”。
+- 当前最大功能缺口不再是能否完成闭环，而是稳定性、素材质量和工程化。
+- 采集阶段暴露出候选选择问题：本次真实搜索第一条笔记评论数为 0，后续必须做候选池评分。
+- 发布状态同步存在短暂延迟，后续应设计轮询而不是只查一次。
+- 下一步可以独立尝试“根据文本生成图片素材”，再复用现有 `creator-assets` 和私密发布流程。
+- 图片生成方向需要新增 OpenAI 图片配置，目前 `.env` 尚未配置 `OPENAI_API_KEY` 或图片模型变量；不能复用当前 DeepSeek 文本 LLM key。
+
+## 11. 2026-06-12 GPT-image-2 生图素材链路状态
+
+已新增 OpenAI 图片生成最小链路：
+
+- `platforms/openai_image.py`：读取图片配置、构造 run 图像提示词、调用 OpenAI Images API、保存生成图。
+- `scripts/generate_creator_image_asset.py`：从 run 读取内容，生成图片，并可选绑定到 `creator-assets`。
+- `.env.example`：补充 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_IMAGE_MODEL`、图片尺寸、格式和超时配置。
+- 测试覆盖：图片配置、请求 payload、base64 解码、错误脱敏、图片保存、脚本绑定 payload、`prompt-out` 自动建目录。
+
+最新验证：
+
+- 相关测试：`16 passed`。
+- 编译：`platforms/openai_image.py` 和 `scripts/generate_creator_image_asset.py` 通过。
+- 真实请求已打到 OpenAI，但返回 HTTP 401 `invalid_api_key`。
+- 错误输出已脱敏，不再回显 `sk-...` key 片段。
+
+当前结论：
+
+- GPT-image-2 生图测试尚未通过。
+- 工程链路已就绪，当前阻塞是 `.env` 中的 OpenAI key 无效，或 key 与 `OPENAI_BASE_URL=https://api.openai.com/v1` 不匹配。
+- 更换有效 key 或设置正确中转 `OPENAI_BASE_URL` 后，应优先重跑生图绑定，再继续私密发布验证。

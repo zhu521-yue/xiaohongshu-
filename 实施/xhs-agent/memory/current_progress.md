@@ -991,3 +991,143 @@
 - 真实小红书和真实 LLM 验证需要非沙箱网络，否则会出现 `127.0.0.1:9` 代理失败。
 - 8013 是当前保留的真实网络 API 实例；不要误连旧的 8010/8012。
 - 下一步主链后半段建议继续验证：审核保存草稿 -> 私密发布/状态同步 -> 表现回填。
+
+## 2026-06-11 采集策略与后续 RAG 基础记录
+
+讨论结论：
+- 数据采集不应简单选择评论数、点赞数、收藏数最多的笔记。
+- 高互动指标应作为重要排序因子，但不是唯一标准。
+- 后续更适合作为 RAG 基础的采集策略是“高相关 + 高质量互动”候选池。
+
+建议采集逻辑：
+1. 搜索关键词后先形成候选池，例如前 20-50 篇。
+2. 先按主题相关度过滤偏题笔记。
+3. 再综合评论数、点赞数、收藏数、近期程度、账号体量等指标排序。
+4. 对前 5-10 篇抓评论。
+5. 评论层过滤互粉、引流、水军、抽奖、低价值情绪噪声。
+6. 最终把“真实问题密度高”的评论和笔记沉淀为后续 RAG 记忆输入。
+
+后续实现时机：
+- 不建议立刻进入复杂 GraphRAG。
+- 当前优先继续跑通主链后半段：审核保存草稿 -> 私密发布/状态同步 -> 表现回填。
+- 等真实主链稳定后，再做采集候选池评分与 RAG 数据结构，这样沉淀的数据才可靠。
+
+## 2026-06-11 主链后半段：审核保存草稿验证
+
+本轮继续主链后半段的第一步：对真实采集 + LangGraph + 真实 LLM 生成的 run 执行人工审核通过，但不触发创作者平台发布。
+
+验证对象：
+- API：`http://127.0.0.1:8013`
+- run：`run_c91c97a1d502`
+- 审核前状态：`status=success`，`publish_status=pending`，`human_approved=false`
+
+执行结果：
+- 审核接口：`POST /runs/run_c91c97a1d502/approve`
+- 返回：`ok=true`
+- `publish_status=success`
+- `human_approved=true`
+- `operation_memory_written=true`
+- `operation_record_id=op_32545c8a8d31`
+- `creator_publish_requested=false`
+- `creator_publish_status=not_requested`
+- Markdown 草稿：`output/markdown_exports/20260611_235133_小红书选题先别急着判断，这几个坑要避开.md`
+- API 日志：`data/logs/api.log` 已记录 `run_approved run_id=run_c91c97a1d502`
+
+当前判断：
+- 主链已从“待人工审核”推进到“审核通过并保存本地草稿/运营记忆”。
+- 因本次未绑定创作者图片素材、也未请求 creator 发布，所以没有触发私密发布。
+- 下一条主链任务应使用新 run 做“绑定真实图片素材 -> 审核通过并请求私密发布 -> 状态同步 -> 表现回填”，因为已保存的 run 不能再绑定 creator assets。
+
+## 2026-06-12 主链后半段：真实私密发布、状态同步、表现回填
+
+本轮目标是验证完整的后半段真实闭环：新 run -> 绑定图片素材 -> 审核通过并请求创作者平台私密发布 -> 作品状态同步 -> 按 creator_note_id 表现回填。
+
+执行前提：
+- `scripts/check_creator_platform.py --mode spider_xhs` 预检通过：`ok=true`。
+- 重新启动 8014 API，并显式设置：
+  - `COLLECTOR_MODE=spider_xhs`
+  - `CREATOR_MODE=spider_xhs`
+  - `LLM_MODEL_NAME=deepseek-v4-pro`
+- 8014 运行在非沙箱网络环境，避免真实小红书/LLM 请求走 `127.0.0.1:9`。
+
+执行结果：
+- 新 run：`run_d2572a74de62`
+- run 状态：`success`
+- 真实采集：`raw_notes_count=1`，`raw_comments_count=0`
+- LLM：`enabled=true`，`model=deepseek-v4-pro`
+- 本地生成中性测试封面：`data/manual_creator_assets/run_d2572a74de62_cover.png`
+- 图片绑定接口：`POST /runs/run_d2572a74de62/creator-assets`
+- 绑定结果：`creator_images_count=1`
+- 审核发布接口：`POST /runs/run_d2572a74de62/approve`
+- 发布结果：
+  - `publish_status=success`
+  - `creator_publish_requested=true`
+  - `creator_publish_status=success`
+  - `creator_publish_mode=spider_xhs`
+  - `creator_note_id=6a2adc0c000000003502cd53`
+  - `operation_record_id=op_247efc20de96`
+- 状态同步：
+  - `GET /creator/notes/status?creator_note_id=6a2adc0c000000003502cd53`
+  - `status=synced`
+  - `visibility_label=仅自己可见`
+  - `metrics_snapshot={views:0, likes:0, collects:0, comments:0}`
+- 表现回填：
+  - `POST /performance`
+  - `updated_record.record_id=op_247efc20de96`
+  - `status=performance_recorded`
+  - `creator_note_id=6a2adc0c000000003502cd53`
+  - `performance_score=0`
+
+重要观察：
+- 这次真实采集命中的笔记互动为 0，导致 `raw_comments_count=0`。这再次证明后续必须做“候选池 + 综合评分 + 评论质量评分”，不能只取搜索结果第一条或低互动候选。
+- 状态同步第一次请求曾短暂返回 `not_found`，随后作品列表和状态接口均能查到新笔记，说明平台发布后列表可能存在短暂同步延迟；后续应做轮询/等待。
+- 当前测试图片是本地生成的中性测试图，不是最终内容生产素材。下一阶段可尝试根据生成文本内容调用 GPT-image 系列模型生成图片，再走同一套 `creator-assets` 绑定和私密发布流程。
+
+下一步建议：
+1. 调研并确认 OpenAI 图片生成 API 和实际模型名/API Key 配置，不要直接假设 `GPT-image-2` 可用。
+2. 做“文本内容 -> 图片提示词 -> 生成图片 -> 保存到 data/generated_assets -> 绑定 creator-assets”的独立最小链路。
+3. 图片生成链路通过后，再替换当前手动/本地测试图素材绑定。
+
+补充调研：
+- 本地 `.env` 目前没有 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_IMAGE_MODEL` 或 `GPT_IMAGE_MODEL`。
+- 当前代码中没有 OpenAI 图片生成集成，只有 OpenAI-compatible 文本 LLM 配置，且目前指向 DeepSeek。
+- 官方 OpenAI 文档显示图片生成可通过 Image API `images.generate` 使用 `gpt-image-2`，但该模型可能需要组织验证。
+- 旧 8013 API 已停止，目前保留 8014 真实 creator 模式 API。
+
+## 2026-06-12 GPT-image-2 生图素材链路：代码就绪，真实请求被 key 拒绝
+
+本轮目标是在已跑通的私密发布闭环基础上，尝试用 OpenAI 图片模型根据 run 文本内容生成封面图，再复用 `creator-assets` 绑定流程。
+
+已完成工程改动：
+- 新增 `platforms/openai_image.py`，封装 OpenAI Images API 配置读取、提示词构造、图片请求、base64 解码和本地保存。
+- 新增 `scripts/generate_creator_image_asset.py`，支持从 `GET /runs/{run_id}` 读取内容，生成图片，保存到 `data/generated_assets/`，并可选绑定到 `/runs/{run_id}/creator-assets`。
+- `.env.example` 增加 `OPENAI_API_KEY`、`OPENAI_BASE_URL`、`OPENAI_IMAGE_MODEL`、`OPENAI_IMAGE_SIZE` 等图片生成配置模板。
+- 修复脚本 `--prompt-out` 写入时父目录不存在的问题，新增 `write_prompt()`。
+- 新增 OpenAI 图片错误脱敏，避免 HTTP 错误体回显 `sk-...` key 片段。
+
+验证结果：
+- 单测与编译：
+  - `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests\test_openai_image_generation.py tests\test_generate_creator_image_asset.py tests\test_creator_asset_binding.py tests\test_check_api_run_auth.py -q`
+  - 结果：`16 passed`
+  - `D:\Anaconda\envs\ContentShare\python.exe -m compileall platforms\openai_image.py scripts\generate_creator_image_asset.py`
+  - 结果：通过
+- 配置来源检查：
+  - `.env` 已存在 `OPENAI_API_KEY`
+  - 脚本实际加载的是 `.env` 中的 key，未被系统环境变量覆盖
+  - `OPENAI_IMAGE_MODEL=gpt-image-2`
+  - `OPENAI_BASE_URL=https://api.openai.com/v1`
+- 真实命令：
+  - `D:\Anaconda\envs\ContentShare\python.exe .\scripts\generate_creator_image_asset.py --base-url http://127.0.0.1:8014 --run-id run_fda76a64a278 --bind --prompt-out data\generated_assets\run_fda76a64a278_prompt.txt`
+  - OpenAI 返回：HTTP 401，`code=invalid_api_key`
+  - 脱敏复验通过：错误输出中的 key 已替换为 `[REDACTED_OPENAI_KEY]`
+
+当前判断：
+- 这一步还没有通过 GPT-image-2 生图测试；没有生成图片，也没有绑定到 `run_fda76a64a278`。
+- 代码侧最小链路已就绪，当前卡点是 `.env` 里的 OpenAI key 不被官方 OpenAI endpoint 接受，或该 key 不对应 `https://api.openai.com/v1`。
+- 如果使用官方 OpenAI，需要更换/重新生成有效 API key。
+- 如果使用中转或代理服务，需要同时设置对应的 `OPENAI_BASE_URL`，不能只填代理 key 并沿用官方 base URL。
+
+下一步建议：
+1. 先更新 `.env` 中的 `OPENAI_API_KEY`，或补充正确的 `OPENAI_BASE_URL`。
+2. 更新后重新执行同一条 `generate_creator_image_asset.py` 命令。
+3. 生图绑定成功后，再检查生成图片质量，并继续执行私密发布、状态同步、表现回填。
