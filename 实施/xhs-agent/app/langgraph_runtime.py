@@ -77,6 +77,8 @@ def _invoke_graph(
         state["run_status"] = "waiting_review"
         state["review_required"] = True
         state["review_interrupt_payload"] = interrupt_payload
+        state.setdefault("human_approved", False)
+        state.setdefault("publish_status", "pending")
     elif state.get("publish_status") == "rejected":
         state["run_status"] = "rejected"
     elif state.get("publish_status") == "success":

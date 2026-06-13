@@ -27,6 +27,7 @@ from app.config import load_settings
 from app.business_store import sync_run_business_tables
 from app.business_queries import get_business_run_snapshot as read_business_run_snapshot
 from app.graph import run_langgraph, run_local_graph
+from app.langgraph_runtime import run_graph_thread, resume_graph_thread
 from app.run_events import record_run_event
 from app.run_queue import LocalRunQueue, SQLiteRunQueue
 from app.run_store import LocalRunStore, SQLiteRunStore
@@ -45,6 +46,7 @@ CREATOR_ASSETS_DIR = PROJECT_ROOT / "data" / "creator_assets"
 STATIC_DIR = PROJECT_ROOT / "app" / "static"
 RUN_STORE: LocalRunStore | SQLiteRunStore | None = None
 RUN_QUEUE_SERVICE: LocalRunQueue | SQLiteRunQueue | None = None
+RUNTIME_CHECKPOINT_DB_PATH: Path | None = None
 LOGGER = logging.getLogger("xhs_agent.api")
 _MIN_CREATOR_IMAGE_BYTES = 32
 _MAX_CREATOR_ASSET_COUNT = creator_platform.MAX_IMAGE_COUNT
@@ -430,6 +432,9 @@ def platform_status() -> dict[str, Any]:
 def _state_summary(state: dict[str, Any]) -> dict[str, Any]:
     failure_category = _summary_failure_category(state)
     return {
+        "run_status": state.get("run_status"),
+        "review_action": state.get("review_action"),
+        "review_required": state.get("review_required"),
         "raw_notes_count": len(state.get("raw_notes") or []),
         "raw_comments_count": len(state.get("raw_comments") or []),
         "comment_insights_count": len(state.get("comment_insights") or []),
@@ -566,6 +571,7 @@ def _initial_state_from_request(request_payload: dict[str, Any]) -> dict[str, An
         "human_approved": request_payload["approve"],
         "collect_limit": request_payload["collect_limit"],
         "save_collection": request_payload["save_collection"],
+        "run_status": "queued",
     }
 
 
@@ -589,7 +595,12 @@ def _run_workflow(
         ):
             return run_local_graph(initial_state, run_id=run_id, event_db_path=store.db_path)
         return run_local_graph(initial_state)
-    return run_langgraph(initial_state)
+    result = run_graph_thread(
+        initial_state,
+        run_id=run_id,
+        checkpoint_db_path=RUNTIME_CHECKPOINT_DB_PATH,
+    )
+    return result.state
 
 
 def _finish_run(
