@@ -69,3 +69,89 @@ def test_resume_graph_thread_uses_human_review_payload(tmp_path: Path, monkeypat
     assert result.state["human_feedback"] == "approved by user"
     assert result.state["publish_status"] == "success"
     assert result.state["operation_memory_written"] is True
+
+
+def test_reject_resume_finishes_inside_graph(tmp_path: Path, monkeypatch) -> None:
+    from app import graph
+
+    monkeypatch.setattr(graph, "load_user_input", lambda state: {"run_status": "running"})
+    monkeypatch.setattr(graph, "check_account_stage", lambda state: {"account_stage": "cold_start"})
+    monkeypatch.setattr(graph, "retrieve_graphrag_memory", lambda state: {"retrieved_memory": []})
+    monkeypatch.setattr(graph, "analyze_topic_and_pain_points", lambda state: {"pain_points": []})
+    monkeypatch.setattr(
+        graph,
+        "decide_content_strategy",
+        lambda state: {"content_format": "image_text", "content_type": "step_tutorial"},
+    )
+    monkeypatch.setattr(graph, "generate_image_text", lambda state: {"titles": ["T"], "body": "B"})
+    monkeypatch.setattr(graph, "check_compliance", lambda state: {"compliance_risk_level": "low"})
+
+    run_graph_thread(
+        {"user_topic": "topic", "target_user": "user", "user_selected_format": "image_text"},
+        run_id="run_runtime_reject",
+        checkpoint_db_path=tmp_path / "runtime.sqlite3",
+    )
+    result = resume_graph_thread(
+        "run_runtime_reject",
+        {"action": "rejected", "feedback": "needs rewrite"},
+        checkpoint_db_path=tmp_path / "runtime.sqlite3",
+    )
+
+    assert result.state["run_status"] == "rejected"
+    assert result.state["publish_status"] == "rejected"
+    assert result.state["operation_memory_written"] is False
+    assert "needs rewrite" in result.state["human_feedback"]
+    assert result.state["review_generation"]["provider_mode"] == "manual_review"
+
+
+def test_creator_publish_runs_inside_graph(tmp_path: Path, monkeypatch) -> None:
+    from app import graph
+    from platforms import creator as creator_platform
+
+    calls = []
+    monkeypatch.setattr(graph, "load_user_input", lambda state: {"run_status": "running"})
+    monkeypatch.setattr(graph, "check_account_stage", lambda state: {"account_stage": "cold_start"})
+    monkeypatch.setattr(graph, "retrieve_graphrag_memory", lambda state: {"retrieved_memory": []})
+    monkeypatch.setattr(graph, "analyze_topic_and_pain_points", lambda state: {"pain_points": []})
+    monkeypatch.setattr(
+        graph,
+        "decide_content_strategy",
+        lambda state: {"content_format": "image_text", "content_type": "step_tutorial"},
+    )
+    monkeypatch.setattr(graph, "generate_image_text", lambda state: {"titles": ["T"], "body": "B", "tags": ["xhs"]})
+    monkeypatch.setattr(graph, "check_compliance", lambda state: {"compliance_risk_level": "low"})
+    monkeypatch.setattr(graph, "publish_or_schedule", lambda state: {"publish_status": "success", "post_id": "post.md"})
+    monkeypatch.setattr(graph, "review_performance", lambda state: {"review_summary": "reviewed"})
+    monkeypatch.setattr(graph, "write_operation_memory", lambda state: {"operation_memory_written": True})
+    monkeypatch.setattr(
+        creator_platform,
+        "publish_private_image_text",
+        lambda draft, human_confirmed: calls.append((draft, human_confirmed)) or {
+            "ok": True,
+            "mode": "mock",
+            "platform": "xhs_creator",
+            "visibility": "private",
+            "note_id": "mock_private_note",
+        },
+    )
+
+    run_graph_thread(
+        {"user_topic": "topic", "target_user": "user", "user_selected_format": "image_text"},
+        run_id="run_runtime_creator",
+        checkpoint_db_path=tmp_path / "runtime.sqlite3",
+    )
+    result = resume_graph_thread(
+        "run_runtime_creator",
+        {
+            "action": "approved",
+            "feedback": "approved",
+            "creator_publish": True,
+            "creator_publish_private": True,
+            "creator_human_confirmed": True,
+        },
+        checkpoint_db_path=tmp_path / "runtime.sqlite3",
+    )
+
+    assert len(calls) == 1
+    assert result.state["creator_publish_status"] == "success"
+    assert result.state["creator_note_id"] == "mock_private_note"

@@ -16,11 +16,13 @@ from app.state import XHSState
 
 from nodes.compliance_node import check_compliance, revise_content_for_compliance
 from nodes.content_node import generate_image_text
+from nodes.creator_publish_node import creator_publish_or_skip
 from nodes.human_review_node import human_review
 from nodes.input_node import load_user_input
 from nodes.insight_node import analyze_topic_and_pain_points
 from nodes.memory_node import retrieve_graphrag_memory, write_operation_memory
 from nodes.publish_node import publish_or_schedule
+from nodes.reject_node import reject_publish
 from nodes.review_node import review_performance
 from nodes.stage_node import check_account_stage
 from nodes.strategy_node import decide_content_strategy
@@ -202,6 +204,8 @@ def build_langgraph(*, checkpointer=None):
     graph.add_node("revise_content_for_compliance", revise_content_for_compliance)
     graph.add_node("human_review", human_review)
     graph.add_node("publish_or_schedule", publish_or_schedule)
+    graph.add_node("creator_publish_or_skip", creator_publish_or_skip)
+    graph.add_node("reject_publish", reject_publish)
     graph.add_node("review_performance", review_performance)
     graph.add_node("write_operation_memory", write_operation_memory)
 
@@ -242,11 +246,13 @@ def build_langgraph(*, checkpointer=None):
         route_human_review,
         {
             "publish_or_schedule": "publish_or_schedule",
-            "wait_human_review": "review_performance",
+            "reject_publish": "reject_publish",
         },
     )
 
-    graph.add_edge("publish_or_schedule", "review_performance")
+    graph.add_edge("publish_or_schedule", "creator_publish_or_skip")
+    graph.add_edge("creator_publish_or_skip", "review_performance")
+    graph.add_edge("reject_publish", END)
     graph.add_edge("review_performance", "write_operation_memory")
     graph.add_edge("write_operation_memory", END)
 
