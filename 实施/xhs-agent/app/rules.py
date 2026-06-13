@@ -61,6 +61,11 @@ def load_llm_prompts() -> dict[str, Any]:
     return _read_json_config("llm_prompts.json")
 
 
+@lru_cache(maxsize=None)
+def load_data_quality_rules() -> dict[str, Any]:
+    return _read_json_config("data_quality_rules.json")
+
+
 def load_performance_weights() -> dict[str, int]:
     rules = load_performance_rules()
     weights = rules.get("performance_weights")

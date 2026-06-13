@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.rules import load_data_quality_rules
+
+
+DATA_QUALITY_RULES = load_data_quality_rules()
+
 
 def _as_list(value: Any) -> list[Any]:
     return value if isinstance(value, list) else []
@@ -37,10 +42,20 @@ def _evidence_count(comment_insights: list[Any]) -> int:
     return count
 
 
+def _analysis_rules() -> dict[str, Any]:
+    rules = DATA_QUALITY_RULES.get("analysis_report")
+    return rules if isinstance(rules, dict) else {}
+
+
 def _comment_quality_level(raw_comments_count: int, evidence_count: int, has_errors: bool) -> str:
-    if raw_comments_count >= 20 and evidence_count >= 5 and not has_errors:
+    rules = _analysis_rules()
+    high_comments = _to_int(rules.get("high_quality_min_comments")) or 20
+    high_evidence = _to_int(rules.get("high_quality_min_evidence")) or 5
+    medium_comments = _to_int(rules.get("medium_quality_min_comments")) or 5
+    medium_evidence = _to_int(rules.get("medium_quality_min_evidence")) or 2
+    if raw_comments_count >= high_comments and evidence_count >= high_evidence and not has_errors:
         return "high"
-    if raw_comments_count >= 5 and evidence_count >= 2:
+    if raw_comments_count >= medium_comments and evidence_count >= medium_evidence:
         return "medium"
     return "low"
 
@@ -54,14 +69,15 @@ def _confidence_score(
     candidate_count: int,
     raw_comments_count: int,
 ) -> int:
+    rules = _analysis_rules()
     score = min(evidence_count * 12, 48)
     score += min(pain_point_count * 10, 30)
     score += min(selected_count * 6, 18)
     if has_errors:
-        score -= 15
+        score -= _to_int(rules.get("comment_fetch_error_penalty")) or 15
     score = max(0, min(score, 100))
     if candidate_count <= 0 or raw_comments_count <= 0:
-        score = min(score, 45)
+        score = min(score, _to_int(rules.get("empty_sample_score_cap")) or 45)
     return score
 
 

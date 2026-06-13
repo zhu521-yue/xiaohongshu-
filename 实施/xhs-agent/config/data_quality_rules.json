@@ -1,0 +1,52 @@
+{
+  "rag_gate": {
+    "min_score": 60,
+    "min_selected_candidates": 1,
+    "min_raw_comments": 5,
+    "min_evidence_count": 2,
+    "block_on_comment_fetch_errors": false,
+    "comment_fetch_error_penalty": 15
+  },
+  "analysis_report": {
+    "high_quality_min_comments": 20,
+    "high_quality_min_evidence": 5,
+    "medium_quality_min_comments": 5,
+    "medium_quality_min_evidence": 2,
+    "comment_fetch_error_penalty": 15,
+    "empty_sample_score_cap": 45
+  },
+  "cross_domain_pollution": {
+    "health_topic_keywords": [
+      "宝宝",
+      "婴儿",
+      "孩子",
+      "湿疹",
+      "热疹",
+      "皮疹",
+      "疹子",
+      "过敏",
+      "发烧",
+      "高烧",
+      "医生",
+      "就医",
+      "用药",
+      "擦药",
+      "诊断",
+      "母乳"
+    ],
+    "health_pollution_patterns": [
+      "对护理方法存在疑问",
+      "护理方向",
+      "宝宝湿疹",
+      "湿疹",
+      "热疹",
+      "皮疹",
+      "疹子",
+      "擦药",
+      "用药",
+      "就医",
+      "诊断",
+      "不替代专业诊断"
+    ]
+  }
+}
