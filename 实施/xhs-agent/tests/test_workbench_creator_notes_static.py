@@ -38,3 +38,17 @@ def test_creator_notes_can_refresh_single_note_status_with_wait():
     assert "wait=true" in APP_JS
     assert "data-note-status-id" in APP_JS
     assert "刷新状态" in APP_JS
+
+
+def test_workbench_can_sync_creator_note_performance_from_platform():
+    assert "syncCreatorNotePerformance" in APP_JS
+    assert "/creator/notes/performance-sync" in APP_JS
+    assert "data-sync-note-performance" in APP_JS
+    assert "同步表现" in APP_JS
+
+
+def test_workbench_renders_performance_trends_summary():
+    assert 'id="performanceTrends"' in INDEX_HTML
+    assert "renderPerformanceTrends" in APP_JS
+    assert "/performance/trends?limit=20" in APP_JS
+    assert "高分内容" in APP_JS

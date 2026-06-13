@@ -1424,3 +1424,46 @@ Worker service
 - “平台指标自动抓取”从未完成调整为手动触发初版完成。
 - 该能力仍不是后台定时轮询、批量同步或趋势分析。
 - 公开图文、视频、定时发布、GraphRAG 入库、历史大规模迁移、阶段二软广和达人能力继续后置。
+
+## 32. 2026-06-13 平台指标批量同步与工作台入口完成
+
+本次主线继续解决平台指标自动抓取后的遗留项，把单条同步扩展为批量、脚本循环、趋势摘要和工作台入口。
+
+已完成：
+
+- `app/creator_performance_sync.py`
+  - 新增 `sync_creator_note_performance_batch()`。
+  - 新增 `summarize_performance_trends()`。
+  - 批量任务按目标逐条返回结果，单条失败不会中断其他目标。
+- API：
+  - 新增 `POST /creator/notes/performance-sync/batch`。
+  - 新增 `GET /performance/trends?limit=...`。
+- CLI：
+  - `scripts/sync_creator_note_performance.py` 支持多个 `--creator-note-id` 和 `--run-id`。
+  - 新增 `--repeat-count` 和 `--repeat-interval-seconds`，用于人工触发的短周期循环同步。
+- 工作台：
+  - 表现录入区显示表现趋势摘要。
+  - 平台作品列表支持“同步表现”。
+  - 运营记忆记录支持按 `creator_note_id` “同步表现”。
+
+验证补充：
+
+- 定点新增测试组通过：`20 passed`。
+- 相关回归通过：`33 passed`。
+- `node --check app/static/app.js` 通过。
+- Python 编译检查通过：`compileall app scripts tests`。
+- 浏览器工作台 smoke 通过：趋势区域渲染，页面中可见同步表现按钮。
+- 全量测试通过：`263 passed`。
+- 真实 creator 只读批量同步复验通过：
+  - `--run-id run_877b49f35f98`
+  - `--creator-note-id 6a2d186a000000003503829c`
+  - `total=2`
+  - `succeeded=2`
+  - `failed=0`
+
+路线图影响：
+
+- “平台指标批量同步”和“工作台同步入口”从待办调整为初版完成。
+- “趋势分析”从未完成调整为轻量摘要完成；完整 BI 和时间序列分析仍可后续扩展。
+- “后台常驻定时调度”仍未完成，需要单独设计 worker/队列/告警策略。
+- 公开图文、视频、定时发布、GraphRAG、阶段二软广/达人能力继续后置。

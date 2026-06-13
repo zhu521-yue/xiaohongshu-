@@ -148,3 +148,131 @@ def sync_creator_note_performance(
         "performance_payload": payload,
         "performance_result": performance_result,
     }
+
+
+def sync_creator_note_performance_batch(
+    *,
+    targets: list[dict[str, Any]],
+    limit: int = 50,
+    wait: bool = False,
+    attempts: int = 5,
+    interval_seconds: float = 2.0,
+    notes: str | None = None,
+    run_loader: RunLoader | None = None,
+    status_reader: StatusReader,
+    performance_recorder: PerformanceRecorder,
+) -> dict[str, Any]:
+    results: list[dict[str, Any]] = []
+    for target in targets:
+        clean_target = target if isinstance(target, dict) else {}
+        try:
+            result = sync_creator_note_performance(
+                creator_note_id=str(clean_target.get("creator_note_id") or "").strip(),
+                run_id=str(clean_target.get("run_id") or "").strip(),
+                limit=limit,
+                wait=wait,
+                attempts=attempts,
+                interval_seconds=interval_seconds,
+                notes=notes,
+                run_loader=run_loader,
+                status_reader=status_reader,
+                performance_recorder=performance_recorder,
+            )
+            results.append({"ok": True, **result})
+        except Exception as exc:
+            results.append(
+                {
+                    "ok": False,
+                    "target": {
+                        "creator_note_id": str(clean_target.get("creator_note_id") or "").strip(),
+                        "run_id": str(clean_target.get("run_id") or "").strip(),
+                    },
+                    "error": str(exc),
+                }
+            )
+
+    succeeded = sum(1 for item in results if item.get("ok") is True)
+    failed = len(results) - succeeded
+    return {
+        "total": len(results),
+        "succeeded": succeeded,
+        "failed": failed,
+        "results": results,
+    }
+
+
+def _has_metric_data(record: dict[str, Any]) -> bool:
+    performance_data = record.get("performance_data")
+    if not isinstance(performance_data, dict):
+        return False
+    return any(key in performance_data for key in METRIC_KEYS)
+
+
+def _compact_trend_record(record: dict[str, Any]) -> dict[str, Any]:
+    performance_data = record.get("performance_data")
+    performance_data = performance_data if isinstance(performance_data, dict) else {}
+    return {
+        "record_id": record.get("record_id") or "",
+        "title": record.get("title") or record.get("topic") or "",
+        "creator_note_id": record.get("creator_note_id") or "",
+        "status": record.get("status") or "",
+        "updated_at": record.get("updated_at") or "",
+        "performance_score": _safe_int(record.get("performance_score")),
+        "performance_data": {
+            key: _safe_int(performance_data.get(key))
+            for key in METRIC_KEYS
+        },
+    }
+
+
+def _average(value: int | float, count: int) -> float:
+    return round(float(value) / count, 2) if count else 0.0
+
+
+def summarize_performance_trends(
+    records: list[dict[str, Any]],
+    *,
+    limit: int = 20,
+) -> dict[str, Any]:
+    performance_records = [
+        record
+        for record in records
+        if isinstance(record, dict) and _has_metric_data(record)
+    ]
+    performance_records.sort(
+        key=lambda item: str(item.get("updated_at") or ""),
+        reverse=True,
+    )
+    performance_records = performance_records[: max(0, int(limit))]
+
+    totals = {key: 0 for key in METRIC_KEYS}
+    scores: list[int] = []
+    for record in performance_records:
+        data = record.get("performance_data")
+        data = data if isinstance(data, dict) else {}
+        for key in METRIC_KEYS:
+            totals[key] += _safe_int(data.get(key))
+        scores.append(_safe_int(record.get("performance_score")))
+
+    count = len(performance_records)
+    compacted = [_compact_trend_record(record) for record in performance_records]
+    top_records = sorted(
+        compacted,
+        key=lambda item: (
+            _safe_int(item.get("performance_score")),
+            str(item.get("updated_at") or ""),
+        ),
+        reverse=True,
+    )[:5]
+    return {
+        "record_count": count,
+        "totals": totals,
+        "averages": {key: _average(value, count) for key, value in totals.items()},
+        "score": {
+            "min": min(scores) if scores else 0,
+            "max": max(scores) if scores else 0,
+            "average": _average(sum(scores), count),
+        },
+        "top_records": top_records,
+        "recent_records": compacted[:5],
+    }

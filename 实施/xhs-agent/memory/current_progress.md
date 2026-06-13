@@ -1,5 +1,63 @@
 # 当前工程进度
 
+## 2026-06-13 平台指标批量同步、趋势摘要与工作台入口
+
+本轮目标是在平台指标手动触发初版之后，继续解决遗留问题：补齐批量同步、安全的脚本循环同步、表现趋势摘要和工作台一键同步入口。真实公开发布、视频发布、定时发布、M5 GraphRAG、M6 软广/达人属于高风险或大模块，本轮未混入。
+
+已完成：
+- 扩展 `app/creator_performance_sync.py`：
+  - 新增 `sync_creator_note_performance_batch()`，支持多个 `creator_note_id` / `run_id` 目标。
+  - 单个目标失败不会中断批量任务，会在 `results` 中返回失败项和错误原因。
+  - 新增 `summarize_performance_trends()`，从 operation memory 表现记录生成总量、均值、分数区间、高分内容和最近记录摘要。
+- 扩展 API：
+  - `POST /creator/notes/performance-sync/batch`
+  - `GET /performance/trends?limit=...`
+  - API 层仍只做参数解析，实际同步与趋势逻辑保留在服务模块。
+- 扩展 CLI：
+  - `scripts/sync_creator_note_performance.py` 支持多次传入 `--creator-note-id` 和 `--run-id`。
+  - 新增 `--repeat-count` 和 `--repeat-interval-seconds`，作为手动脚本循环入口；不创建后台常驻定时服务。
+- 扩展工作台：
+  - 表现录入区新增 `performanceTrends` 趋势摘要。
+  - 平台作品列表新增“同步表现”按钮。
+  - 运营记忆中有 `creator_note_id` 的记录新增“同步表现”按钮。
+  - 点击后调用 `/creator/notes/performance-sync`，从平台快照回填本地表现。
+
+验证结果：
+- TDD RED：新增测试先因批量服务、趋势函数、HTTP 路由、CLI 多目标/循环和工作台入口缺失失败。
+- 定点 RED->GREEN：新增批量/趋势/前端入口测试组 -> `20 passed`。
+- 相关回归通过：`tests/test_creator_performance_sync_service.py tests/test_api_platform_status.py tests/test_sync_creator_note_performance_script.py tests/test_workbench_creator_notes_static.py tests/test_creator_note_performance_sync.py` -> `33 passed`。
+- JS 语法检查通过：`node --check app/static/app.js`。
+- Python 编译检查通过：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app scripts tests`。
+- 浏览器工作台 smoke 通过：
+  - 本地 mock API 使用 `http://127.0.0.1:8029`
+  - `GET /performance/trends?limit=20` 返回 `ok=true` 和 `record_count=15`
+  - 页面渲染 `表现趋势`、`高分内容`
+  - 页面中可见 4 个同步表现按钮
+- 全量测试通过：`D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `263 passed`。
+- 真实 creator 只读批量同步复验通过：
+  - 使用隔离 SQLite `data/langgraph_private_publish_20260613.sqlite3`
+  - 命令目标：`--run-id run_877b49f35f98` + `--creator-note-id 6a2d186a000000003503829c`
+  - `total=2`
+  - `succeeded=2`
+  - `failed=0`
+  - 两个目标都读到平台状态 `synced`，可见性 `仅自己可见`
+  - 本地 `performance_result.business_sync.status=success`
+
+当前效果：
+- 平台指标同步已经从“单条手动触发”升级为：单条、批量、脚本循环、工作台按钮、趋势摘要。
+- 脚本循环可以支持人工触发的短周期复查，但不会常驻后台，也不会绕过平台安全边界。
+- 批量同步能容忍单条失败，适合真实平台只读巡检。
+
+当前限制：
+- 后台定时调度服务仍未做；如要做长期定时，需要单独设计 worker/队列和告警策略。
+- 趋势分析是基于 operation memory 的轻量摘要，还不是完整 BI 或时间序列分析。
+- 公开图文、视频发布、平台定时发布仍未实现，执行前必须重新确认真实写入风险。
+- M5 GraphRAG 与 M6 软广/达人能力仍未开始。
+
+下一步建议：
+- 如果继续收口 M4，可优先做后台调度设计或工作台批量选择。
+- 如果转主线，可进入 M5 GraphRAG 前的数据入库/查询设计。
+
 ## 2026-06-13 平台指标自动抓取初版
 
 本轮目标是在用户更新 creator cookie 后，先确认真实只读访问是否恢复，再把“作品列表指标快照 -> /performance -> operation memory/run state/performance_records”做成模块化的手动触发能力。

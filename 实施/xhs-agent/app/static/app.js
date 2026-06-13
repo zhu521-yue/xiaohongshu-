@@ -32,6 +32,7 @@ const elements = {
   rawTab: $("#rawTab"),
   performanceForm: $("#performanceForm"),
   performanceNotice: $("#performanceNotice"),
+  performanceTrends: $("#performanceTrends"),
   syncCreatorNotesButton: $("#syncCreatorNotesButton"),
   creatorNotesList: $("#creatorNotesList"),
   memoryList: $("#memoryList"),
@@ -166,6 +167,36 @@ async function refreshCreatorNoteStatus(noteId, item) {
     setNotice(elements.performanceNotice, error.message, true);
   } finally {
     if (refreshButton) refreshButton.disabled = false;
+  }
+}
+
+async function syncCreatorNotePerformance(noteId, label = "平台笔记") {
+  const cleanNoteId = String(noteId || "").trim();
+  if (!cleanNoteId) {
+    setNotice(elements.performanceNotice, "缺少平台笔记 ID", true);
+    return;
+  }
+
+  setNotice(elements.performanceNotice, `正在同步${label}表现：${cleanNoteId}`);
+  try {
+    const data = await apiPost("/creator/notes/performance-sync", {
+      creator_note_id: cleanNoteId,
+      wait: true,
+      attempts: 5,
+      interval_seconds: 2,
+      notes: "workbench platform performance sync",
+    });
+    const payload = data.performance_payload || {};
+    setNotice(
+      elements.performanceNotice,
+      `已同步表现：曝光 ${payload.views ?? 0} / 点赞 ${payload.likes ?? 0} / 收藏 ${payload.collects ?? 0} / 评论 ${payload.comments ?? 0}`,
+    );
+    await refreshShell();
+    if (state.currentRunId) {
+      await loadRun(state.currentRunId, false);
+    }
+  } catch (error) {
+    setNotice(elements.performanceNotice, error.message, true);
   }
 }
 
@@ -488,6 +519,52 @@ function renderQueue(queue) {
   });
 }
 
+function trendMetric(label, value) {
+  return `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value ?? 0)}</strong></div>`;
+}
+
+function renderTrendRecord(record) {
+  const data = record.performance_data || {};
+  return `
+    <div class="trend-record">
+      <div>
+        <strong>${escapeHtml(record.title || record.record_id || "-")}</strong>
+        <span class="mini-pill">${escapeHtml(record.performance_score ?? 0)}</span>
+      </div>
+      <p class="muted">${escapeHtml(record.creator_note_id || record.record_id || "-")}</p>
+      <p>${escapeHtml(performanceDataSummary(data))}</p>
+    </div>
+  `;
+}
+
+function renderPerformanceTrends(trends) {
+  const summary = trends || {};
+  const totals = summary.totals || {};
+  const score = summary.score || {};
+  const topRecords = summary.top_records || [];
+  elements.performanceTrends.innerHTML = `
+    <div class="performance-trends-head">
+      <h3>表现趋势</h3>
+      <span class="mini-pill">${escapeHtml(summary.record_count ?? 0)} 条</span>
+    </div>
+    <div class="performance-trends-grid">
+      ${trendMetric("总曝光", totals.views)}
+      ${trendMetric("总点赞", totals.likes)}
+      ${trendMetric("总收藏", totals.collects)}
+      ${trendMetric("总评论", totals.comments)}
+      ${trendMetric("最高分", score.max)}
+    </div>
+    <div class="trend-records">
+      <h3>高分内容</h3>
+      ${
+        topRecords.length
+          ? topRecords.map(renderTrendRecord).join("")
+          : `<p class="muted">暂无表现记录</p>`
+      }
+    </div>
+  `;
+}
+
 function runtimeLabel(runtime) {
   if (!runtime) return "未知";
   return runtime.ok === true ? "正常" : "异常";
@@ -769,16 +846,18 @@ function startRunPolling(runId) {
 }
 
 async function refreshShell() {
-  const [platform, queue, runs, memory] = await Promise.all([
+  const [platform, queue, runs, memory, performanceTrends] = await Promise.all([
     apiGet("/platform/status"),
     apiGet("/queue"),
     apiGet("/runs?limit=12"),
     apiGet("/memory/records?limit=8"),
+    apiGet("/performance/trends?limit=20"),
   ]);
   renderPlatformStatus(platform.platform_status || {});
   renderQueue(queue);
   renderRunList(runs.runs || []);
   renderMemory(memory.records || []);
+  renderPerformanceTrends(performanceTrends.performance_trends || {});
 }
 
 function renderMemory(records) {
@@ -799,13 +878,18 @@ function renderMemory(records) {
         <p>${escapeHtml(record.review_summary || "")}</p>
         <p class="path-line">${escapeHtml(record.post_id || "")}</p>
         <div class="memory-actions">
-          <button class="ghost-button memory-action-button" type="button">用这条记录录入表现</button>
+          <button class="ghost-button memory-action-button" type="button" data-fill-performance>用这条记录录入表现</button>
+          ${
+            record.creator_note_id
+              ? `<button class="ghost-button memory-action-button" type="button" data-sync-memory-performance>同步表现</button>`
+              : ""
+          }
         </div>
       </div>
     `)
     .join("");
 
-  elements.memoryList.querySelectorAll(".memory-action-button").forEach((button) => {
+  elements.memoryList.querySelectorAll("[data-fill-performance]").forEach((button) => {
     button.addEventListener("click", () => {
       const item = button.closest(".memory-item");
       fillPerformanceFromMemoryRecord({
@@ -813,6 +897,12 @@ function renderMemory(records) {
         postId: item?.dataset.postId,
         creatorNoteId: item?.dataset.creatorNoteId,
       });
+    });
+  });
+  elements.memoryList.querySelectorAll("[data-sync-memory-performance]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const item = button.closest(".memory-item");
+      syncCreatorNotePerformance(item?.dataset.creatorNoteId || "", "运营记忆");
     });
   });
 }
@@ -835,6 +925,7 @@ function renderCreatorNotes(notes) {
           <div class="creator-note-actions">
             <button class="memory-action-button" type="button" data-select-note>选择</button>
             <button class="memory-action-button ghost-button" type="button" data-refresh-note-status>刷新状态</button>
+            <button class="memory-action-button ghost-button" type="button" data-sync-note-performance>同步表现</button>
           </div>
         </div>
       `;
@@ -848,6 +939,9 @@ function renderCreatorNotes(notes) {
     });
     item.querySelector("[data-refresh-note-status]")?.addEventListener("click", () => {
       refreshCreatorNoteStatus(item.dataset.noteId || "", item);
+    });
+    item.querySelector("[data-sync-note-performance]")?.addEventListener("click", () => {
+      syncCreatorNotePerformance(item.dataset.noteId || "", "平台笔记");
     });
   });
 }

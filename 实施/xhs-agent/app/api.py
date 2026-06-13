@@ -1097,6 +1097,69 @@ def sync_creator_note_performance(
     )
 
 
+def sync_creator_note_performance_batch(
+    *,
+    targets: list[dict[str, Any]],
+    limit: int = 50,
+    wait: bool = False,
+    attempts: int = 5,
+    interval_seconds: float = 2.0,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    return creator_performance_sync_service.sync_creator_note_performance_batch(
+        targets=targets,
+        limit=limit,
+        wait=wait,
+        attempts=attempts,
+        interval_seconds=interval_seconds,
+        notes=notes,
+        run_loader=_load_run,
+        status_reader=get_creator_note_status,
+        performance_recorder=record_performance,
+    )
+
+
+def get_performance_trends(limit: int = 20) -> dict[str, Any]:
+    history = load_history()
+    records = [
+        record
+        for record in history.get("records") or []
+        if isinstance(record, dict)
+    ]
+    return {
+        "performance_trends": creator_performance_sync_service.summarize_performance_trends(
+            records,
+            limit=max(0, int(limit)),
+        )
+    }
+
+
+def _creator_performance_targets(payload: dict[str, Any]) -> list[dict[str, str]]:
+    raw_targets = payload.get("targets")
+    targets: list[dict[str, str]] = []
+    if isinstance(raw_targets, list):
+        for item in raw_targets:
+            if not isinstance(item, dict):
+                continue
+            creator_note_id = str(item.get("creator_note_id") or "").strip()
+            run_id = str(item.get("run_id") or "").strip()
+            if creator_note_id:
+                targets.append({"creator_note_id": creator_note_id})
+            elif run_id:
+                targets.append({"run_id": run_id})
+    else:
+        creator_note_id = str(payload.get("creator_note_id") or "").strip()
+        run_id = str(payload.get("run_id") or "").strip()
+        if creator_note_id:
+            targets.append({"creator_note_id": creator_note_id})
+        if run_id:
+            targets.append({"run_id": run_id})
+
+    if not targets:
+        raise ValueError("Missing required field: targets, creator_note_id, or run_id")
+    return targets
+
+
 def _performance_business_sync_result(
     status: str,
     *,
@@ -1483,6 +1546,10 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, **list_creator_notes(limit=limit)})
             return
 
+        if path == "/performance/trends":
+            self._send_json(200, {"ok": True, **get_performance_trends(limit=limit)})
+            return
+
         if path.startswith("/business/runs/"):
             run_id = path.split("/", 3)[3]
             self._send_json(200, {"ok": True, **get_business_run_snapshot(run_id)})
@@ -1515,6 +1582,21 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
             if path == "/runs":
                 record = submit_run(payload)
                 self._send_json(202, {"ok": True, "run": record})
+                return
+
+            if path == "/creator/notes/performance-sync/batch":
+                result = sync_creator_note_performance_batch(
+                    targets=_creator_performance_targets(payload),
+                    limit=_int(payload.get("limit"), default=50),
+                    wait=_bool(payload.get("wait"), default=False),
+                    attempts=_int(payload.get("attempts"), default=5),
+                    interval_seconds=_float(
+                        payload.get("interval_seconds"),
+                        default=2.0,
+                    ),
+                    notes=str(payload.get("notes") or "").strip() or None,
+                )
+                self._send_json(200, {"ok": True, **result})
                 return
 
             if path == "/creator/notes/performance-sync":

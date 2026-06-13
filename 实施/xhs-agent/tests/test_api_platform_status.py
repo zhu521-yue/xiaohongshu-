@@ -233,6 +233,110 @@ def test_http_creator_note_performance_sync_endpoint_passes_parameters(
     assert data["performance_result"]["business_sync"]["status"] == "success"
 
 
+def test_http_creator_note_performance_batch_sync_endpoint_passes_targets(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XHS_AGENT_API_TOKEN", "secret-token")
+    monkeypatch.setenv("XHS_AGENT_RUN_STORE", "json")
+    monkeypatch.setenv("XHS_AGENT_RUN_QUEUE", "local")
+
+    def fake_batch_sync(
+        *,
+        targets: list[dict],
+        limit: int = 50,
+        wait: bool = False,
+        attempts: int = 5,
+        interval_seconds: float = 2.0,
+        notes: str | None = None,
+    ) -> dict:
+        assert targets == [
+            {"creator_note_id": "note_batch_http"},
+            {"run_id": "run_batch_http"},
+        ]
+        assert limit == 40
+        assert wait is True
+        assert attempts == 4
+        assert interval_seconds == 0.5
+        assert notes == "batch http"
+        return {
+            "total": 2,
+            "succeeded": 2,
+            "failed": 0,
+            "results": [{"ok": True}, {"ok": True}],
+        }
+
+    monkeypatch.setattr(api, "sync_creator_note_performance_batch", fake_batch_sync, raising=False)
+
+    server_urls = _start_test_server(monkeypatch, tmp_path)
+    base_url = next(server_urls)
+    try:
+        status, data = _post_json(
+            f"{base_url}/creator/notes/performance-sync/batch",
+            {
+                "targets": [
+                    {"creator_note_id": "note_batch_http"},
+                    {"run_id": "run_batch_http"},
+                ],
+                "limit": 40,
+                "wait": True,
+                "attempts": 4,
+                "interval_seconds": 0.5,
+                "notes": "batch http",
+            },
+            {"Authorization": "Bearer secret-token"},
+        )
+    finally:
+        try:
+            next(server_urls)
+        except StopIteration:
+            pass
+
+    assert status == 200
+    assert data == {
+        "ok": True,
+        "total": 2,
+        "succeeded": 2,
+        "failed": 0,
+        "results": [{"ok": True}, {"ok": True}],
+    }
+
+
+def test_http_performance_trends_endpoint_returns_summary(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XHS_AGENT_API_TOKEN", "secret-token")
+    monkeypatch.setenv("XHS_AGENT_RUN_STORE", "json")
+    monkeypatch.setenv("XHS_AGENT_RUN_QUEUE", "local")
+    expected = {
+        "performance_trends": {
+            "record_count": 2,
+            "totals": {"views": 400},
+            "top_records": [{"record_id": "op_top"}],
+        }
+    }
+
+    def fake_trends(limit: int = 20) -> dict:
+        assert limit == 7
+        return expected
+
+    monkeypatch.setattr(api, "get_performance_trends", fake_trends, raising=False)
+
+    server_urls = _start_test_server(monkeypatch, tmp_path)
+    base_url = next(server_urls)
+    try:
+        status, data = _read_json(
+            f"{base_url}/performance/trends?limit=7",
+            {"Authorization": "Bearer secret-token"},
+        )
+    finally:
+        try:
+            next(server_urls)
+        except StopIteration:
+            pass
+
+    assert status == 200
+    assert data == {"ok": True, **expected}
+
+
 def test_http_business_run_endpoint_returns_business_snapshot(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XHS_AGENT_API_TOKEN", "secret-token")
     monkeypatch.setenv("XHS_AGENT_RUN_STORE", "sqlite")
