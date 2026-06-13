@@ -1,95 +1,95 @@
-# Foundation Baselines Design
+# 三条基础线一期闭环设计
 
-## Goal
+## 目标
 
-Build the first implementation slice for three foundation lines before continuing the main feature track:
+在继续主线功能开发之前，先补齐三条基础线的一期最小闭环：
 
-1. Data quality baseline before RAG and GraphRAG.
-2. Configuration governance for remaining hard-coded business rules.
-3. Production-lite deployment baseline for a final deploy path.
+1. RAG / GraphRAG 之前的数据质量基线。
+2. 剩余硬编码业务规则的配置治理。
+3. 面向最终部署的 production-lite 部署基线。
 
-This slice must stay small, testable, and compatible with the current LangGraph-first, SQLite-capable runtime. It must not introduce vector search, a graph database, Docker, Nginx, systemd, Redis, user accounts, or new public platform write behavior.
+本轮目标是“小而可测、能落地、不给后续返工埋坑”。它必须兼容当前 LangGraph-first、SQLite-capable 的运行时，不引入向量检索、图数据库、Docker、Nginx、systemd、Redis、用户账号体系，也不扩大真实平台写入行为。
 
-## Current State
+## 当前状态
 
-The project already has:
+项目已经具备：
 
-- Candidate scoring and selected sample flags in `collection_candidates`.
-- Deterministic `analysis_report` output with sample selection, comment quality, pain point confidence, structure hint, and risks.
-- SQLite run store, queue, operation memory, business table overlay, performance records, run events, and local stack scripts.
-- M5 first slice: `app/memory_graph.py` derives a graph-style view from operation memory.
-- Minimal production guardrails: optional API token, redacted logs, runtime config checks, startup/health/stop/tail scripts.
+- 采集候选池评分和入选标记，结果写入 `collection_candidates`。
+- 确定性 `analysis_report`，覆盖样本选择、评论质量、痛点可信度、结构建议和风险。
+- SQLite run store、SQLite queue、SQLite operation memory、业务表 overlay、表现记录、运行事件和本地 stack 脚本。
+- M5 第一片：`app/memory_graph.py` 能从 operation memory 派生图谱视图。
+- 最小生产护栏：可选 API token、日志脱敏、运行配置检查、启动/健康检查/停止/日志脚本。
 
-The project still lacks:
+项目仍然缺少：
 
-- An explicit RAG eligibility gate that says whether a run is good enough to enter future RAG/GraphRAG memory.
-- Configurable thresholds for analysis quality and cross-domain pollution filtering.
-- A production-lite deploy checklist that can be machine-checked beyond the existing runtime config checks.
-- Backup and restore helpers for the single-file SQLite production-lite shape.
+- 明确的 RAG 入库资格判断，无法判断一次 run 是否足够干净、可信、可进入后续 RAG / GraphRAG 记忆。
+- 可配置的数据分析阈值和跨领域污染过滤规则。
+- 比现有 runtime config 更贴近部署前检查的 production-lite checklist。
+- 面向单 SQLite DB 形态的备份和恢复脚本。
 
-## Scope
+## 范围
 
-### In Scope
+### 本轮包含
 
-Data quality:
+数据质量线：
 
-- Add a deterministic quality gate that consumes existing run state fields:
+- 新增确定性的质量门槛模块，消费现有 run state 字段：
   - `analysis_report`
   - `collection_candidates`
   - `raw_comments`
   - `comment_insights`
   - `pain_points`
   - `comment_fetch_errors`
-- Return a `rag_eligibility` object with:
+- 返回 `rag_eligibility` 对象：
   - `eligible`
   - `level`
   - `score`
   - `reasons`
   - `blocking_reasons`
   - `recommended_action`
-- Persist the gate result in run state and business table JSON payloads through existing sync paths where possible.
+- 在可复用现有同步路径的前提下，把门槛结果写入 run state 和业务表 JSON payload。
 
-Configuration governance:
+配置治理线：
 
-- Move analysis threshold values from code into a new JSON config file.
-- Move operation memory cross-domain pollution keywords and patterns into config.
-- Keep safe fallback defaults in code only for missing optional labels, not for business policy.
+- 把 `analysis_report` 中的质量阈值从代码迁移到新的 JSON 配置文件。
+- 把 operation memory 的跨领域健康污染关键词和模式迁移到配置文件。
+- 代码里只保留缺省标签等安全兜底，不再把业务策略硬编码在 Python 里。
 
-Deployment baseline:
+部署基线：
 
-- Add a production-lite deployment checklist helper that verifies:
-  - API token is set.
-  - SQLite run store, queue, and memory are enabled.
-  - Foundation schema is selected.
-  - Business table writes are enabled.
-  - Log directory is writable.
-  - DB parent directory is writable.
-  - Backup directory is writable.
-  - Real LLM key and Spider_XHS cookie are present or explicitly marked as unavailable warnings.
-- Add SQLite backup and restore scripts for the production-lite single-DB path.
-- Document what this baseline can support and what remains required before public exposure.
+- 新增 production-lite 部署检查脚本，检查：
+  - API token 已设置。
+  - run store、queue、memory 都使用 SQLite。
+  - 数据库 schema 使用 foundation。
+  - 业务表写入已开启。
+  - 日志目录可写。
+  - DB 父目录可写。
+  - 备份目录可写。
+  - 真实 LLM key 和 Spider_XHS cookie 存在；缺失时给出 warning，不打印明文值。
+- 新增 SQLite 备份和恢复脚本。
+- 更新文档，明确本轮能支持什么，以及公网正式部署前仍缺什么。
 
-### Out of Scope
+### 本轮不包含
 
-- Embeddings, vector databases, pgvector, graph databases, or full GraphRAG ingestion.
-- Full historical data migration.
-- Docker, Nginx, systemd, HTTPS certificates, Redis/RQ/Celery, or user account systems.
-- Public publishing, video publishing, platform scheduled publishing, or expanded creator write behavior.
-- Encrypting cookies at rest. This remains a later security item.
+- embedding、向量数据库、pgvector、图数据库或完整 GraphRAG 入库。
+- 历史数据全量迁移。
+- Docker、Nginx、systemd、HTTPS 证书、Redis/RQ/Celery 或用户账号体系。
+- 公开发布、视频发布、平台定时发布或扩大 creator 写入范围。
+- cookie 落盘加密。它属于后续安全专项。
 
-## Architecture
+## 架构设计
 
-### Data Quality Gate
+### 数据质量门槛
 
-Create `app/data_quality_gate.py`.
+新增 `app/data_quality_gate.py`。
 
-Responsibilities:
+职责：
 
-- Load threshold rules from config.
-- Evaluate existing structured signals without re-fetching platform data.
-- Produce a compact `rag_eligibility` result suitable for run state, business table payloads, future GraphRAG ingestion, and UI display.
+- 从配置文件加载阈值规则。
+- 基于现有结构化字段做判断，不重新采集、不访问平台。
+- 生成紧凑的 `rag_eligibility`，供 run state、业务表 payload、后续 GraphRAG 入库和前端展示复用。
 
-Suggested result shape:
+建议返回结构：
 
 ```json
 {
@@ -102,19 +102,19 @@ Suggested result shape:
 }
 ```
 
-Scoring should start simple and deterministic:
+评分先保持简单、确定性：
 
-- Use analysis report confidence score as the main signal.
-- Add selected candidate count signal.
-- Add comment insight and evidence signal.
-- Penalize comment fetch errors.
-- Block when no candidates, no comments, or confidence is below configured minimum.
+- 以 `analysis_report.pain_point_confidence.score` 作为主信号。
+- 叠加入选候选数信号。
+- 叠加评论洞察和证据数信号。
+- 对评论抓取错误做惩罚。
+- 候选为空、评论为空、证据不足或置信度低于配置阈值时阻断。
 
-### Configuration Files
+### 配置文件
 
-Add `config/data_quality_rules.json`.
+新增 `config/data_quality_rules.json`。
 
-Initial structure:
+初始结构：
 
 ```json
 {
@@ -140,98 +140,102 @@ Initial structure:
 }
 ```
 
-The actual keyword lists should be moved from `memory/operation_store.py` into this file.
+实际关键词列表从 `memory/operation_store.py` 迁移到这个文件。
 
-Extend `app/rules.py` with `load_data_quality_rules()`.
+扩展 `app/rules.py`，新增 `load_data_quality_rules()`。
 
-### Integration Points
+### 集成点
 
-Data quality should integrate at the lowest-risk points:
+数据质量门槛采用最低风险接入方式：
 
-- `platforms/analysis_report.py` reads configurable thresholds but keeps its public return shape.
-- The LangGraph analysis node or run assembly path adds `rag_eligibility` after `analysis_report` exists.
-- Business table sync stores the value inside existing sanitized JSON payloads first; adding a dedicated column can be a later migration.
-- `memory_graph` stays read-only and does not ingest anything new in this slice.
+- `platforms/analysis_report.py` 读取配置阈值，但保持现有返回结构不变。
+- 在 `analysis_report` 生成之后，为 run state 增加 `rag_eligibility`。
+- 业务表同步先把 `rag_eligibility` 放入现有脱敏 JSON payload；专用列可以留到后续 schema 迁移。
+- `memory_graph` 继续保持只读派生视图，本轮不新增真正 RAG 入库。
 
-### Deployment Helpers
+### 部署辅助脚本
 
-Add scripts:
+新增脚本：
 
 - `scripts/check_production_lite_deploy.py`
 - `scripts/backup_sqlite_db.py`
 - `scripts/restore_sqlite_db.py`
 
-`check_production_lite_deploy.py` should reuse `scripts/check_runtime_config.py` logic where possible and add deployment-specific checks rather than duplicate everything.
+`check_production_lite_deploy.py` 应尽量复用 `scripts/check_runtime_config.py` 的能力，在此基础上补部署专项检查，避免重复维护两套逻辑。
 
-Backup script behavior:
+备份脚本行为：
 
-- Resolve DB path inside the project unless an absolute path is provided.
-- Create a timestamped copy in `data/backups` by default.
-- Refuse to overwrite an existing backup.
-- Output structured JSON.
+- DB 路径默认解析到项目内；传入绝对路径时按绝对路径处理。
+- 默认备份到 `data/backups`。
+- 生成带时间戳的备份文件。
+- 不覆盖已有备份。
+- 输出结构化 JSON。
 
-Restore script behavior:
+恢复脚本行为：
 
-- Default to dry-run.
-- Require `--apply` to replace the target DB.
-- Create a pre-restore backup before replacement.
-- Refuse paths outside the project unless explicitly absolute and readable.
-- Output structured JSON.
+- 默认 dry-run。
+- 必须显式传入 `--apply` 才替换目标 DB。
+- 替换前先创建 pre-restore 备份。
+- 不删除任何文件。
+- 输出结构化 JSON。
 
-## Error Handling
+## 错误处理
 
-- Missing config file should fail loudly for required rules.
-- Malformed config should raise a clear runtime error through `app.rules`.
-- Data quality gate should never raise on missing run fields; it should return a blocked or low-confidence result.
-- Backup and restore scripts must never delete files.
-- Restore must not run without `--apply`.
-- All script output must avoid printing cookies, API keys, authorization headers, or raw `.env` values.
+- 必需配置缺失或 JSON 格式错误时，通过 `app.rules` 抛出清晰错误。
+- 数据质量门槛遇到缺失字段时不抛异常，而是返回 blocked 或 low confidence。
+- 备份和恢复脚本不能删除文件。
+- 恢复脚本没有 `--apply` 时不能修改 DB。
+- 所有脚本输出都不能打印 cookie、API key、authorization header 或 `.env` 明文值。
 
-## Testing
+## 测试设计
 
-Add focused tests:
+新增聚焦测试：
 
 - `tests/test_data_quality_gate.py`
-  - Eligible run with enough candidates, comments, evidence, and confidence.
-  - Blocked run when comments or evidence are missing.
-  - Penalized run when comment fetch errors exist.
+  - 候选、评论、证据和置信度充足时返回 eligible。
+  - 评论或证据缺失时返回 blocked。
+  - 存在评论抓取错误时按配置惩罚或阻断。
 - `tests/test_analysis_report_config.py`
-  - Config thresholds influence comment quality levels.
+  - 配置阈值能影响评论质量等级。
 - `tests/test_operation_memory_config.py`
-  - Cross-domain pollution keywords load from config and still block health contamination for non-health topics.
+  - 跨领域污染关键词从配置加载，非健康主题仍能阻断健康类污染。
 - `tests/test_production_lite_deploy_check.py`
-  - Missing API token fails.
-  - SQLite production-lite settings pass the deployment preflight.
-  - Missing backup directory is created or reported writable.
+  - 缺少 API token 时失败。
+  - SQLite production-lite 设置齐全时通过。
+  - 备份目录不存在时能创建或报告可写。
 - `tests/test_sqlite_backup_restore_scripts.py`
-  - Backup creates timestamped copy.
-  - Restore dry-run does not modify DB.
-  - Restore with `--apply` creates pre-restore backup and replaces DB.
+  - 备份脚本生成带时间戳的副本。
+  - restore dry-run 不修改 DB。
+  - restore `--apply` 会创建 pre-restore 备份并替换 DB。
 
-Run targeted tests first, then related regression, then full test suite if time allows.
+验证顺序：
 
-## Documentation
+1. 先跑新增定点测试。
+2. 再跑相关回归测试。
+3. 最后视时间跑全量测试。
 
-Update:
+## 文档更新
 
-- `docs/m17b-startup-templates.md` with production-lite deploy checklist, backup, and restore commands.
-- `memory/current_progress.md` with this slice's completed work, verification, and remaining limits.
-- `memory/project_status_and_roadmap.md` to mark the three foundation lines as initial implementation started, not fully complete.
+需要更新：
 
-## Acceptance Criteria
+- `docs/m17b-startup-templates.md`：补 production-lite 部署 checklist、备份和恢复命令。
+- `memory/current_progress.md`：记录本轮完成内容、验证结果和限制。
+- `memory/project_status_and_roadmap.md`：把三条基础线标记为“一期开始/初版完成”，不能写成彻底完成。
 
-- `analysis_report` thresholds are configurable.
-- Operation memory cross-domain pollution rules are configurable.
-- A run can expose `rag_eligibility` without introducing full RAG.
-- Production-lite deployment preflight has a dedicated script.
-- SQLite backup and restore helpers exist and are covered by tests.
-- No `.env` secret values are read into logs or documentation.
-- Existing local/mock flow keeps working.
+## 验收标准
 
-## Remaining Work After This Slice
+- `analysis_report` 的质量阈值可配置。
+- operation memory 的跨领域污染规则可配置。
+- run state 能暴露 `rag_eligibility`，且不引入完整 RAG。
+- 有独立 production-lite 部署检查脚本。
+- 有 SQLite 备份和恢复脚本，并有测试覆盖。
+- 不读取或输出 `.env` 明文敏感值。
+- 现有 local/mock 流程保持可用。
 
-- Full RAG/GraphRAG ingestion and vector retrieval.
-- Historical JSON and operation memory migration.
-- Dedicated business table columns for RAG eligibility and quality metrics.
-- Public-production deployment with HTTPS, reverse proxy, process supervision, user accounts, and stronger secret handling.
-- Complete BI and time-series analytics.
+## 本轮之后仍未完成
+
+- 完整 RAG / GraphRAG 入库和向量召回。
+- 历史 JSON 与 operation memory 全量迁移。
+- 为 RAG eligibility 和质量指标增加专用业务表列。
+- 公网生产部署所需的 HTTPS、反向代理、进程守护、用户账号和更强密钥治理。
+- 完整 BI 与时间序列分析。
