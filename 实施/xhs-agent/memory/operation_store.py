@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 
 from app.config import PROJECT_ROOT, load_settings
 from app.json_store import read_json_file, write_json_atomic
-from app.rules import load_performance_weights
+from app.rules import load_data_quality_rules, load_performance_weights
 
 
 MEMORY_ROOT = Path(__file__).resolve().parent
@@ -33,6 +33,7 @@ EMPTY_HISTORY = {
 
 
 PERFORMANCE_WEIGHTS = load_performance_weights()
+DATA_QUALITY_RULES = load_data_quality_rules()
 HISTORY_LOCK = threading.RLock()
 MEMORY_BACKEND = None
 
@@ -415,45 +416,22 @@ def _topic_relevance(topic: str, record: Dict[str, Any]) -> int:
     return score
 
 
-HEALTH_TOPIC_KEYWORDS = (
-    "\u5b9d\u5b9d",  # baby
-    "\u5a74\u513f",  # infant
-    "\u5b69\u5b50",  # child
-    "\u6e7f\u75b9",  # eczema
-    "\u70ed\u75b9",  # heat rash
-    "\u76ae\u75b9",  # rash
-    "\u75b9\u5b50",  # rash
-    "\u8fc7\u654f",  # allergy
-    "\u53d1\u70e7",  # fever
-    "\u9ad8\u70e7",  # high fever
-    "\u533b\u751f",  # doctor
-    "\u5c31\u533b",  # seek medical care
-    "\u7528\u836f",  # medication
-    "\u64e6\u836f",  # apply medicine
-    "\u8bca\u65ad",  # diagnosis
-    "\u6bcd\u4e73",  # breast milk
-)
+def _cross_domain_rules() -> Dict[str, Any]:
+    rules = DATA_QUALITY_RULES.get("cross_domain_pollution")
+    return rules if isinstance(rules, dict) else {}
 
 
-CROSS_DOMAIN_HEALTH_PATTERNS = (
-    "\u5bf9\u62a4\u7406\u65b9\u6cd5\u5b58\u5728\u7591\u95ee",  # doubt nursing/care advice
-    "\u62a4\u7406\u65b9\u5411",  # care direction
-    "\u5b9d\u5b9d\u6e7f\u75b9",  # baby eczema
-    "\u6e7f\u75b9",  # eczema
-    "\u70ed\u75b9",  # heat rash
-    "\u76ae\u75b9",  # rash
-    "\u75b9\u5b50",  # rash
-    "\u64e6\u836f",  # apply medicine
-    "\u7528\u836f",  # medication
-    "\u5c31\u533b",  # seek medical care
-    "\u8bca\u65ad",  # diagnosis
-    "\u4e0d\u66ff\u4ee3\u4e13\u4e1a\u8bca\u65ad",  # not medical diagnosis
-)
+def _health_topic_keywords() -> tuple[str, ...]:
+    return tuple(str(item) for item in _cross_domain_rules().get("health_topic_keywords") or [])
+
+
+def _health_pollution_patterns() -> tuple[str, ...]:
+    return tuple(str(item) for item in _cross_domain_rules().get("health_pollution_patterns") or [])
 
 
 def _topic_is_health_related(topic: str) -> bool:
     normalized = str(topic or "")
-    return any(keyword in normalized for keyword in HEALTH_TOPIC_KEYWORDS)
+    return any(keyword in normalized for keyword in _health_topic_keywords())
 
 
 def _iter_text_values(value: Any) -> List[str]:
@@ -488,7 +466,7 @@ def _record_has_cross_domain_health_pollution(topic: str, record: Dict[str, Any]
         "next_action": record.get("next_action"),
     }
     haystack = " ".join(_iter_text_values(fields_to_scan))
-    return any(pattern in haystack for pattern in CROSS_DOMAIN_HEALTH_PATTERNS)
+    return any(pattern in haystack for pattern in _health_pollution_patterns())
 
 
 def find_relevant_records(topic: str, limit: int = 5, path: Path | None = None) -> List[Dict[str, Any]]:
