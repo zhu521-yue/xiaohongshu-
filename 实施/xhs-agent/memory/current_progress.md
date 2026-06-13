@@ -1,5 +1,40 @@
 # 当前工程进度
 
+## 2026-06-13 项目记忆收口与真实闭环预检
+
+本轮目标是在列出未完成任务后，开始按优先级收口：先校准项目记忆，再准备真实 Cookie 小流量复验前的只读闭环检查。
+
+已完成：
+- 更新 `AGENTS.md`，把固定回复前缀校准为 `锋宝：`。
+- 校准 `AGENTS.md` 中已滞后的阶段描述：
+  - `human_review` 已升级为 LangGraph interrupt/resume。
+  - M25 平台安全护栏已完成。
+  - M26 发布状态等待已完成。
+  - 默认运行时已收敛为 LangGraph-first。
+  - 最新验证状态更新为全量测试 `247 passed`。
+- 提交项目记忆更新：
+  - `29d190d docs: refresh xhs project memory`
+- 运行轻量验证：
+  - `git diff --check` 通过。
+  - `tests/test_api_langgraph_resume.py` 通过：`4 passed`。
+- 运行 `scripts/check_runtime_config.py --profile local` 通过，提示本地 API token 为空，符合当前本地开发状态。
+- 尝试运行只读真实表现闭环工具：
+  - `scripts/check_real_performance_closure.py --run-id run_fda76a64a278 --creator-note-id 6a2bce0b000000003502c564 --limit 50 --use-platform-metrics`
+  - 本地 run state、operation memory 和 `performance_records` 同步检查通过。
+  - `business_sync.status=success`，业务表快照包含 `performance_records=1`。
+
+当前阻塞：
+- 沙箱网络代理指向 `127.0.0.1:9`，导致 creator 作品列表只读请求无法访问真实平台，`platform_note_found=false`。
+- 已按权限规则申请非沙箱网络重跑只读检查，但自动审批未通过；本轮没有绕过权限继续访问真实平台。
+
+当前影响：
+- 本地表现闭环工具链可用，但真实 creator 作品列表只读匹配尚未完成最新复验。
+- 生成的临时 SQLite 文件位于 `data/` 下，并被 `.gitignore` 忽略，不会进入版本提交。
+
+下一步建议：
+- 需要用户明确允许非沙箱网络后，再重跑同一条只读闭环检查，确认 `platform_note_found=true`。
+- 只读闭环确认后，再进入 LangGraph-first 小流量端到端复验：`waiting_review -> 绑定真实图片 -> creator 私密发布 -> 作品列表只读同步 -> /performance 回填`。
+
 ## 2026-06-11 creator 发布状态只读同步
 
 本轮目标是在真实 creator v2 作品列表和表现回填烟测之后，补上只读发布状态同步能力。
