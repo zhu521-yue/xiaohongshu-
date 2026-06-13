@@ -8,6 +8,7 @@ import pytest
 from app import api
 from app.run_store import LocalRunStore
 from memory import operation_store
+from platforms import creator_publish_flow
 
 
 PNG_BYTES = base64.b64decode(
@@ -26,10 +27,14 @@ def isolated_api(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("XHS_AGENT_RUN_STORE", "json")
     monkeypatch.setenv("XHS_AGENT_RUN_QUEUE", "local")
     monkeypatch.setenv("XHS_AGENT_MEMORY_STORE", "json")
+    monkeypatch.setenv("LLM_MODEL_NAME", "mock")
+    monkeypatch.setenv("COLLECTOR_MODE", "mock")
     monkeypatch.setenv("CREATOR_MODE", "mock")
     monkeypatch.setattr(api, "RUN_STORE", LocalRunStore(tmp_path / "runs", json_default=api._json_default))
     monkeypatch.setattr(api, "RUNS_DIR", tmp_path / "runs")
     monkeypatch.setattr(api, "CREATOR_ASSETS_DIR", tmp_path / "creator_assets", raising=False)
+    monkeypatch.setattr(creator_publish_flow, "CREATOR_ASSETS_DIR", tmp_path / "creator_assets", raising=False)
+    monkeypatch.setattr(api, "RUNTIME_CHECKPOINT_DB_PATH", tmp_path / "runtime.sqlite3", raising=False)
     monkeypatch.setattr(
         operation_store,
         "MEMORY_BACKEND",
@@ -41,69 +46,15 @@ def isolated_api(tmp_path: Path, monkeypatch):
 
 
 def _generated_record(run_id: str = "run_asset_001") -> dict:
-    state = {
-        "user_topic": "XHS topic method",
-        "target_user": "new creators",
-        "user_selected_format": "image_text",
-        "content_format": "image_text",
-        "content_type": "step_tutorial",
-        "compliance_risk_level": "low",
-        "compliance_issues": [],
-        "human_approved": False,
-        "publish_status": "pending",
-        "post_id": None,
-        "pain_points": [{"pain": "do not know where to start", "evidence": "comment evidence", "priority": 1}],
-        "comment_insights": [],
-        "comment_fetch_errors": [],
-        "titles": ["Private publish test title"],
-        "cover_texts": ["Cover"],
-        "body": "Body text for a private creator publish test.",
-        "image_page_plan": [{"page": 1, "title": "Page 1", "text": "Key point"}],
-        "image_prompts": ["Image prompt"],
-        "tags": ["xhs", "content"],
-        "comment_call": "When will you start?",
-    }
-    content = {
-        "titles": state["titles"],
-        "cover_texts": state["cover_texts"],
-        "body": state["body"],
-        "image_page_plan": state["image_page_plan"],
-        "image_prompts": state["image_prompts"],
-        "tags": state["tags"],
-        "comment_call": state["comment_call"],
-    }
-    return {
-        "run_id": run_id,
-        "status": "success",
-        "created_at": "2026-06-11T10:00:00",
-        "updated_at": "2026-06-11T10:00:00",
-        "started_at": "2026-06-11T09:59:00",
-        "finished_at": "2026-06-11T10:00:00",
-        "request": {
-            "topic": "XHS topic method",
+    return api.create_run(
+        {
+            "topic": f"XHS topic method {run_id}",
             "target_user": "new creators",
             "format": "image_text",
-            "goal": "Generate a cold-start knowledge sharing note.",
-            "approve": False,
             "engine": "langgraph",
-            "collect_limit": 3,
-            "save_collection": False,
-        },
-        "summary": api._state_summary(state),
-        "content": content,
-        "insights": {
-            "pain_points": state["pain_points"],
-            "comment_insights": [],
-            "comment_fetch_errors": [],
-        },
-        "state": state,
-        "paths": {
-            "post_id": None,
-            "collection_path": None,
-            "operation_memory_path": None,
-        },
-        "error": None,
-    }
+            "collect_limit": 1,
+        }
+    )
 
 
 def _asset_payload(filename: str = "cover.png", data: bytes = PNG_BYTES) -> dict:

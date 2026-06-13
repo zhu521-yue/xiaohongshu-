@@ -38,6 +38,32 @@ def _merge_state(state: XHSState, updates: dict) -> XHSState:
     return next_state
 
 
+def _local_human_review(state: XHSState) -> dict:
+    risk_level = state.get("compliance_risk_level", "low")
+    if risk_level == "high":
+        return {
+            "review_action": "rejected",
+            "human_approved": False,
+            "human_feedback": "合规风险高，人工审核不通过。",
+            "publish_status": "pending",
+        }
+
+    if state.get("human_approved") is True:
+        return {
+            "review_action": "approved",
+            "human_approved": True,
+            "human_feedback": state.get("human_feedback") or "人工审核通过。",
+            "publish_status": "pending",
+        }
+
+    return {
+        "review_action": None,
+        "human_approved": False,
+        "human_feedback": state.get("human_feedback") or "等待人工审核确认。",
+        "publish_status": "pending",
+    }
+
+
 def run_local_graph(
     initial_state: XHSState,
     *,
@@ -95,7 +121,7 @@ def run_local_graph(
         )
     state = _run_node(
         state,
-        human_review,
+        _local_human_review,
         node_name="human_review",
         run_id=run_id,
         event_db_path=event_db_path,

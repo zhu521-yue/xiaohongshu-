@@ -27,7 +27,7 @@ from app.config import load_settings
 from app.business_store import sync_run_business_tables
 from app.business_queries import get_business_run_snapshot as read_business_run_snapshot
 from app.graph import run_langgraph, run_local_graph
-from app.langgraph_runtime import run_graph_thread, resume_graph_thread
+from app.langgraph_runtime import run_graph_thread, resume_graph_thread, update_graph_thread_state
 from app.run_events import record_run_event
 from app.run_queue import LocalRunQueue, SQLiteRunQueue
 from app.run_store import LocalRunStore, SQLiteRunStore
@@ -815,9 +815,28 @@ def attach_creator_assets(run_id: str, payload: dict[str, Any]) -> dict[str, Any
         "collection_path": state.get("collection_path"),
         "operation_memory_path": state.get("operation_memory_path"),
     }
+    _maybe_update_waiting_review_graph_state(run_id, updated, state)
     _save_run(updated)
     LOGGER.info("creator_assets_bound run_id=%s image_count=%s", run_id, len(saved_files))
     return updated
+
+
+def _maybe_update_waiting_review_graph_state(
+    run_id: str,
+    record: dict[str, Any],
+    state: dict[str, Any],
+) -> None:
+    request = record.get("request") if isinstance(record.get("request"), dict) else {}
+    summary = record.get("summary") if isinstance(record.get("summary"), dict) else {}
+    if request.get("engine") != "langgraph":
+        return
+    if summary.get("run_status") != "waiting_review":
+        return
+    update_graph_thread_state(
+        run_id,
+        state,
+        checkpoint_db_path=RUNTIME_CHECKPOINT_DB_PATH,
+    )
 
 
 def _save_reviewed_run(

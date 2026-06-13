@@ -64,6 +64,18 @@ def resume_graph_thread(
     )
 
 
+def update_graph_thread_state(
+    run_id: str,
+    state: dict[str, Any],
+    *,
+    checkpoint_db_path: str | Path | None = None,
+) -> None:
+    config = graph_thread_config(run_id)
+    checkpointer = SQLiteSnapshotSaver(checkpoint_db_path or default_checkpoint_db_path())
+    app = build_langgraph(checkpointer=checkpointer)
+    app.update_state(config, dict(state))
+
+
 def _invoke_graph(
     payload: Any,
     *,

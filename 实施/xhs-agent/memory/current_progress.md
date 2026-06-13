@@ -2350,3 +2350,43 @@
 下一步建议：
 - 完成本轮全量验证和提交后，用真实 `run_fda76a64a278` 与 `creator_note_id=6a2bce0b000000003502c564` 运行一次只读闭环工具，确认工具化脚本也能复现上一轮手工闭环。
 - 后续再评估是否做平台指标自动抓取、GraphRAG 入库和历史大规模迁移。
+
+## 2026-06-13 LangGraph-first 全盘运行时整改
+
+本轮目标是把默认主路径收敛为 LangGraph-first runtime，让人工审核、审核通过/驳回、发布、creator 私密发布、复盘、写运营记忆和节点事件都回到同一个 LangGraph thread 控制，`local` executor 仅保留为显式兼容路径。
+
+已完成：
+- 新增 SQLite-backed LangGraph checkpoint snapshot 封装，`thread_id` 使用 `run_id`。
+- 新增 `app.langgraph_runtime` 边界，提供 run、resume、thread config 和 checkpoint state 更新能力。
+- `human_review` 改成真正的 LangGraph interrupt/resume 节点。
+- 驳回和 creator 发布迁入图内节点：`reject_publish`、`creator_publish_or_skip`。
+- API 默认使用 LangGraph runtime；`approve_run()` 和 `reject_run()` 通过同一 thread resume，不再手动拼接发布、复盘和写记忆节点。
+- worker 遇到 `waiting_review` 会保存 run 并释放队列任务，不再把等待人工审核当成 worker failure。
+- LangGraph 主路径会写入节点级 run events，包含节点完成和 human review interrupt。
+- CLI/API 默认 engine 收敛为 `langgraph`，`engine=local` 仅保留为显式兼容。
+- 收尾修复：
+  - local executor 使用本地审核兼容函数，避免在非 LangGraph runnable 上下文调用 `interrupt()`。
+  - creator 素材绑定后会同步 waiting_review LangGraph checkpoint，确保审核通过 resume 时图内 creator 节点能读取已绑定图片文件。
+
+验证结果：
+- 编译检查通过：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes routers platforms memory scripts llm`。
+- 相关回归通过：`tests/test_creator_asset_binding.py tests/test_api_creator_review_publish.py tests/test_api_langgraph_resume.py tests/test_api_engine_defaults.py tests/test_api_run_control.py` -> `24 passed`。
+- SQLite smoke 回归通过：`tests/test_check_sqlite_stack.py` -> `4 passed`。
+- 全量测试通过：`D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `246 passed`。
+- API smoke 通过：启动本地 API 后运行 `scripts/check_api_run.py --engine langgraph --collect-limit 1 --timeout 180`，run `run_71943ff2a887` 最终 `status=success`，`summary.run_status=waiting_review`。
+
+当前效果：
+- 默认工作台/API/worker 主链路已经进入 LangGraph-first 形态。
+- 人工审核暂停和恢复依赖持久 checkpoint，而不是 API 层临时 state 拼接。
+- creator 图片素材绑定、审核确认和图内私密发布之间的 state 现在可以通过 checkpoint 串起来。
+- RunStore、业务表和前端仍保留兼容投影，便于工作台查询。
+
+当前限制：
+- `run_local_graph()` 仍是兼容执行器，不再作为主路径新增能力。
+- 当前 SQLite checkpoint 是项目内 snapshot wrapper，后续如果 LangGraph 官方 SQLite saver 稳定可评估替换。
+- 本轮没有新增真实公开发布、视频发布、定时发布、平台指标自动抓取、GraphRAG 入库或阶段二软广/达人能力。
+
+下一步建议：
+- 先提交本轮 LangGraph-first runtime 迁移。
+- 然后用真实 Cookie 做一条小流量端到端复验：waiting_review -> 绑定真实图片 -> creator 私密发布 -> 作品列表只读同步 -> `/performance` 回填。
+- 真实主链稳定后，再进入 M5 GraphRAG 运营记忆增强；阶段二软广和达人能力继续后置。

@@ -1,6 +1,6 @@
 # 项目进度与工程路线图
 
-更新时间：2026-06-10
+更新时间：2026-06-13
 
 本文档用于记录当前项目的全局状态、我们期待实现的工程形态，以及尚未实现的关键环节。它不记录长测试输出，只记录对后续开发有价值的结论。
 
@@ -1349,3 +1349,39 @@ Worker service
 - “真实 Cookie 小流量复验前的表现闭环确认”从手工步骤提升为可复跑脚本。
 - 当前仍未完成真实平台指标自动抓取、公开/视频/定时发布、GraphRAG 入库、历史大规模迁移、阶段二软广和达人能力。
 - 下一步建议先完成本轮全量验证和提交，再用真实 `run_fda76a64a278` 与 `creator_note_id=6a2bce0b000000003502c564` 跑一次只读闭环工具，确认工具化脚本复现真实闭环。
+
+## 30. 2026-06-13 LangGraph-first 全盘运行时迁移完成
+
+本次主线把项目默认执行路径从“API/local executor 拼接流程”收敛为 LangGraph-first runtime：
+
+- 新增 SQLite-backed checkpoint snapshot，LangGraph thread 使用 `run_id` 作为 `thread_id`。
+- `human_review` 改为真正的 LangGraph interrupt/resume。
+- `approve_run()` 和 `reject_run()` 都通过同一个 graph thread resume，不再由 API 手动调用发布、creator、复盘和写记忆节点。
+- 驳回和 creator 私密发布迁入图内节点，保留 creator 发布失败脱敏、视频格式限制、缺图保护等旧断言。
+- worker 遇到 human interrupt 后保存 `waiting_review` 并释放队列任务，不再长期占用 worker。
+- LangGraph 主路径记录节点级事件，继续投影到 RunStore、业务表和工作台查询结构。
+- API/CLI 默认 engine 改为 `langgraph`，`engine=local` 只作为显式兼容路径保留。
+- creator 素材绑定会同步 waiting_review checkpoint，确保审核通过后图内 creator 节点能读取已绑定图片文件。
+- local executor 使用本地审核兼容逻辑，避免在非 LangGraph runnable 上下文调用 `interrupt()`。
+
+验证补充：
+
+- 编译检查通过：`compileall app nodes routers platforms memory scripts llm`。
+- 相关回归通过：`tests/test_creator_asset_binding.py tests/test_api_creator_review_publish.py tests/test_api_langgraph_resume.py tests/test_api_engine_defaults.py tests/test_api_run_control.py` -> `24 passed`。
+- SQLite stack smoke 回归通过：`tests/test_check_sqlite_stack.py` -> `4 passed`。
+- 全量测试通过：`246 passed`。
+- HTTP API smoke 通过：`scripts/check_api_run.py --engine langgraph --collect-limit 1 --timeout 180`，run 最终为 `status=success` 且 `summary.run_status=waiting_review`。
+
+路线图影响：
+
+- “LangGraph 主流程”从可用提升为默认主干。
+- “人工审核工作流”已完成关键架构迁移：审核等待和恢复现在由 LangGraph checkpoint 控制；审核人身份、编辑反馈、驳回重生成仍待后续工作台增强。
+- “RunStore/业务表”职责进一步收敛为状态投影和查询，不再决定主流程下一步。
+- “worker 工程化”已经能正确处理 waiting_review，不再把人工审核等待视为失败。
+- `local` executor 后续不再新增业务能力，只保留回归和调试兼容。
+
+下一步建议：
+
+- 用真实 Cookie 做一条小流量端到端复验：LangGraph waiting_review -> 绑定真实图片 -> creator 私密发布 -> 作品列表只读同步 -> `/performance` 回填。
+- 真实平台闭环稳定后，再进入 M5 GraphRAG 运营记忆增强。
+- 公开图文、视频、定时发布、平台指标自动抓取、阶段二软广和达人能力继续后置。
