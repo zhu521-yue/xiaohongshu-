@@ -1282,3 +1282,33 @@ Worker service
 - 现在每轮开发可以先用 `scripts/check_sqlite_stack.py` 快速确认工程底座健康。
 - 该 smoke 不替代真实 HTTP/API 端口验证和真实平台小流量验证；它服务本地工程链路健康检查。
 - 下一步建议进入 `/performance` 到 `performance_records` 的反向同步。
+
+## 28. 2026-06-13 /performance 到 performance_records 反向同步完成
+
+本次主线收口了表现数据闭环：`/performance` 人工录入表现后，运营记忆、SQLite run state 和 `performance_records` 能保持一致。
+
+- `/performance` 保持现有入参和运营记忆更新行为，新增 `business_sync` 响应摘要。
+- 非 SQLite run store、业务表未启用或找不到匹配 success run 时，返回 `business_sync.status=skipped`，不影响运营记忆更新。
+- SQLite run store + foundation business tables 启用时，会按 `operation_record_id`、`creator_note_id`、`post_id` 查找匹配的 success run。
+- 匹配成功后，把表现数据、表现分、复盘摘要和下一步建议合并回 run state。
+- 复用 `_save_run()` 和 `sync_run_business_tables()` 刷新 `performance_records`，没有新增旁路写表逻辑。
+- 同步异常返回 `business_sync.status=failed`，错误信息复用现有脱敏逻辑。
+- `/runs/{run_id}` 的 summary 现在包含 `performance_data` 和 `performance_score`。
+- 新增实施计划：
+  - `docs/superpowers/plans/2026-06-13-performance-business-sync.md`
+
+验证补充：
+
+- TDD RED：`tests/test_creator_note_performance_sync.py` 先因 `business_sync` 缺失出现 `4 failed, 4 passed`。
+- 定点 RED->GREEN 通过：`tests/test_creator_note_performance_sync.py` 为 `8 passed`。
+- 相关回归通过：`tests/test_creator_note_performance_sync.py tests/test_api_business_table_sync.py tests/test_business_store.py` 为 `21 passed`。
+- SQLite stack smoke 通过：`scripts/check_sqlite_stack.py` 输出 `"ok": true`，run 最终 `status=success`，queue 清空，watchdog 未误标超时，业务快照包含 `performance_records`。
+- 编译检查通过：`python -m compileall app scripts tests`。
+- 全量测试通过：`227 passed`。
+
+路线图影响：
+
+- “`/performance` 到 `performance_records` 的反向同步”从待办调整为完成。
+- 当前结构化数据主线已经覆盖 foundation schema、业务表写入、业务查询、事件时间线、队列/worker 可观测、worker watchdog、SQLite stack smoke 和表现数据闭环。
+- 下一步建议转入真实 Cookie 小流量复验：用一条真实私密发布记录确认 `creator_note_id -> /performance -> performance_records` 闭环。
+- 历史 operation memory 表现记录批量补偿、GraphRAG 入库和历史大迁移继续后置。

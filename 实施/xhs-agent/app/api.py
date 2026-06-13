@@ -452,6 +452,8 @@ def _state_summary(state: dict[str, Any]) -> dict[str, Any]:
         "creator_images_count": _int(state.get("creator_images_count"), default=0),
         "operation_memory_written": state.get("operation_memory_written"),
         "operation_record_id": state.get("operation_record_id"),
+        "performance_data": state.get("performance_data") or {},
+        "performance_score": _int(state.get("performance_score"), default=0),
         "review_summary": state.get("review_summary"),
         "next_action": state.get("next_action"),
         "llm_generation": state.get("llm_generation") or {},
@@ -1209,6 +1211,170 @@ def get_creator_note_status(
     }
 
 
+def _performance_business_sync_result(
+    status: str,
+    *,
+    run_id: str | None = None,
+    counts: dict[str, Any] | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    result: dict[str, Any] = {"status": status}
+    if run_id:
+        result["run_id"] = run_id
+    if counts is not None:
+        result["counts"] = counts
+    if reason:
+        result["reason"] = reason
+    return result
+
+
+def _record_matches_performance_target(
+    record: dict[str, Any],
+    *,
+    operation_record_id: str,
+    creator_note_id: str,
+    post_id: str,
+) -> bool:
+    state = record.get("state") if isinstance(record.get("state"), dict) else {}
+    summary = record.get("summary") if isinstance(record.get("summary"), dict) else {}
+    paths = record.get("paths") if isinstance(record.get("paths"), dict) else {}
+    if operation_record_id and state.get("operation_record_id") == operation_record_id:
+        return True
+    if creator_note_id and (
+        state.get("creator_note_id") == creator_note_id
+        or summary.get("creator_note_id") == creator_note_id
+    ):
+        return True
+    if post_id and (
+        state.get("post_id") == post_id
+        or summary.get("post_id") == post_id
+        or paths.get("post_id") == post_id
+    ):
+        return True
+    return False
+
+
+def _find_success_run_for_performance(
+    store: SQLiteRunStore,
+    updated_record: dict[str, Any],
+    *,
+    post_id: str,
+    creator_note_id: str,
+) -> dict[str, Any] | None:
+    operation_record_id = str(updated_record.get("record_id") or "").strip()
+    clean_creator_note_id = str(creator_note_id or updated_record.get("creator_note_id") or "").strip()
+    clean_post_id = str(post_id or updated_record.get("post_id") or "").strip()
+    candidates = [
+        record
+        for record in store.list(limit=500)
+        if record.get("status") == "success"
+        and _record_matches_performance_target(
+            record,
+            operation_record_id=operation_record_id,
+            creator_note_id=clean_creator_note_id,
+            post_id=clean_post_id,
+        )
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: str(item.get("updated_at") or item.get("created_at") or ""), reverse=True)
+    return candidates[0]
+
+
+def _merge_performance_record_into_run_state(
+    run_record: dict[str, Any],
+    updated_record: dict[str, Any],
+) -> dict[str, Any]:
+    state = _state_from_record(run_record)
+    if not state:
+        state = {}
+    state["performance_data"] = dict(updated_record.get("performance_data") or {})
+    state["performance_score"] = _int(updated_record.get("performance_score"), default=0)
+    state["performance_recorded_at"] = updated_record.get("updated_at") or _now_iso()
+    state["review_summary"] = updated_record.get("review_summary") or ""
+    state["next_action"] = updated_record.get("next_action") or ""
+    state["review_generation"] = updated_record.get("review_generation") or {}
+    state["operation_record_id"] = updated_record.get("record_id") or state.get("operation_record_id")
+    if updated_record.get("post_id"):
+        state["post_id"] = updated_record.get("post_id")
+    if updated_record.get("creator_note_id"):
+        state["creator_note_id"] = updated_record.get("creator_note_id")
+    if updated_record.get("published_url"):
+        state["published_url"] = updated_record.get("published_url")
+    if updated_record.get("operator_notes"):
+        state["operator_notes"] = updated_record.get("operator_notes")
+
+    merged = dict(run_record)
+    merged["updated_at"] = _now_iso()
+    merged["summary"] = _state_summary(state)
+    merged["content"] = _content_payload(state)
+    merged["insights"] = _insight_payload(state)
+    merged["state"] = state
+    merged["paths"] = {
+        **(run_record.get("paths") if isinstance(run_record.get("paths"), dict) else {}),
+        "post_id": state.get("post_id"),
+        "collection_path": state.get("collection_path"),
+        "operation_memory_path": state.get("operation_memory_path"),
+    }
+    return merged
+
+
+def _sync_performance_to_business_tables(
+    updated_record: dict[str, Any],
+    *,
+    post_id: str,
+    creator_note_id: str,
+) -> dict[str, Any]:
+    settings = load_settings()
+    if settings.run_store_backend != "sqlite":
+        return _performance_business_sync_result(
+            "skipped",
+            reason="business tables require sqlite run store",
+        )
+    if settings.db_schema != "foundation" or not settings.business_tables_enabled:
+        return _performance_business_sync_result(
+            "skipped",
+            reason="business tables are not enabled",
+        )
+
+    store = _run_store()
+    if not isinstance(store, SQLiteRunStore):
+        return _performance_business_sync_result(
+            "skipped",
+            reason="business tables require sqlite run store",
+        )
+
+    run_record = _find_success_run_for_performance(
+        store,
+        updated_record,
+        post_id=post_id,
+        creator_note_id=creator_note_id,
+    )
+    if run_record is None:
+        return _performance_business_sync_result(
+            "skipped",
+            reason="matching success run not found",
+        )
+
+    try:
+        merged = _merge_performance_record_into_run_state(run_record, updated_record)
+        _save_run(merged)
+    except Exception as exc:
+        return _performance_business_sync_result(
+            "failed",
+            run_id=str(run_record.get("run_id") or ""),
+            reason=_sanitize_business_sync_error(exc),
+        )
+
+    saved = _load_run(str(run_record.get("run_id") or "")) or merged
+    summary = saved.get("summary") if isinstance(saved.get("summary"), dict) else {}
+    return _performance_business_sync_result(
+        "success",
+        run_id=str(saved.get("run_id") or ""),
+        counts=summary.get("business_table_sync_counts") or {},
+    )
+
+
 def record_performance(payload: dict[str, Any]) -> dict[str, Any]:
     post_id = str(payload.get("post_id") or "").strip()
     creator_note_id = str(payload.get("creator_note_id") or "").strip()
@@ -1229,9 +1395,15 @@ def record_performance(payload: dict[str, Any]) -> dict[str, Any]:
         notes=str(payload.get("notes") or "").strip() or None,
         creator_note_id=creator_note_id or None,
     )
+    business_sync = _sync_performance_to_business_tables(
+        record,
+        post_id=post_id,
+        creator_note_id=creator_note_id,
+    )
     return {
         "memory_path": str(operation_memory_path()),
         "updated_record": _compact_memory_record(record),
+        "business_sync": business_sync,
     }
 
 
