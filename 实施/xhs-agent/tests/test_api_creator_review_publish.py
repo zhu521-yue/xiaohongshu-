@@ -6,6 +6,9 @@ import pytest
 
 from conftest import _should_relax_windows_pytest_tmp_mode
 from app import api
+from app.graph import build_langgraph
+from app.langgraph_checkpoint import SQLiteSnapshotSaver
+from app.langgraph_runtime import graph_thread_config
 from app.run_store import LocalRunStore
 from memory import operation_store
 
@@ -24,6 +27,8 @@ def isolated_api(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CREATOR_MODE", "mock")
     monkeypatch.setattr(api, "RUN_STORE", LocalRunStore(tmp_path / "runs", json_default=api._json_default))
     monkeypatch.setattr(api, "RUNS_DIR", tmp_path / "runs")
+    monkeypatch.setattr(api, "RUNTIME_CHECKPOINT_DB_PATH", tmp_path / "runtime.sqlite3", raising=False)
+    monkeypatch.setattr(api, "RUN_QUEUE_SERVICE", None)
     monkeypatch.setattr(
         operation_store,
         "MEMORY_BACKEND",
@@ -35,82 +40,22 @@ def isolated_api(tmp_path: Path, monkeypatch):
 
 
 def _generated_record(run_id: str = "run_creator_001", *, content_format: str = "image_text") -> dict:
-    if content_format == "video":
-        content = {
-            "video_script": {
-                "title": "Video publish test",
-                "hook": "Open strong",
-                "talking_points": ["point"],
-                "shot_plan": [],
-            },
-            "tags": ["xhs"],
-            "comment_call": "What would you do?",
-        }
-        state_content = dict(content)
-    else:
-        content = {
-            "titles": ["Private publish test title"],
-            "cover_texts": ["Cover"],
-            "body": "Body text for a private creator publish test.",
-            "image_page_plan": [{"page": 1, "title": "Page 1", "text": "Key point"}],
-            "image_prompts": ["Image prompt"],
-            "tags": ["xhs", "content"],
-            "comment_call": "When will you start?",
-        }
-        state_content = dict(content)
-
-    state = {
-        "user_topic": "XHS topic method",
-        "target_user": "new creators",
-        "user_selected_format": content_format,
-        "content_format": content_format,
-        "content_type": "step_tutorial",
-        "compliance_risk_level": "low",
-        "compliance_issues": [],
-        "human_approved": False,
-        "publish_status": "pending",
-        "post_id": None,
-        "pain_points": [{"pain": "do not know where to start", "evidence": "comment evidence", "priority": 1}],
-        "comment_insights": [],
-        "comment_fetch_errors": [],
-        **state_content,
-    }
-    return {
-        "run_id": run_id,
-        "status": "success",
-        "created_at": "2026-06-11T10:00:00",
-        "updated_at": "2026-06-11T10:00:00",
-        "started_at": "2026-06-11T09:59:00",
-        "finished_at": "2026-06-11T10:00:00",
-        "request": {
-            "topic": "XHS topic method",
+    return api.create_run(
+        {
+            "topic": f"XHS topic method {run_id}",
             "target_user": "new creators",
             "format": content_format,
-            "goal": "Generate a cold-start knowledge sharing note.",
-            "approve": False,
             "engine": "langgraph",
-            "collect_limit": 3,
-            "save_collection": False,
-        },
-        "summary": api._state_summary(state),
-        "content": content,
-        "insights": {
-            "pain_points": state["pain_points"],
-            "comment_insights": [],
-            "comment_fetch_errors": [],
-        },
-        "state": state,
-        "paths": {
-            "post_id": None,
-            "collection_path": None,
-            "operation_memory_path": None,
-        },
-        "error": None,
-    }
+            "collect_limit": 1,
+        }
+    )
 
 
 def _save_generated(record: dict) -> None:
     api._save_run(record)
+    if api.RUNTIME_CHECKPOINT_DB_PATH is not None:
+        graph = build_langgraph(checkpointer=SQLiteSnapshotSaver(api.RUNTIME_CHECKPOINT_DB_PATH))
+        graph.update_state(graph_thread_config(record["run_id"]), record.get("state") or {})
 
 
 def test_approve_without_creator_publish_does_not_call_creator_adapter(isolated_api, monkeypatch) -> None:
@@ -315,7 +260,7 @@ def test_real_creator_mode_rejects_fake_byte_image_payloads_before_adapter(isola
     )
     record = _generated_record("run_creator_real_fake_bytes")
     record["state"]["creator_image_bytes"] = [b"fake-image-bytes"]
-    monkeypatch.setattr(api, "_load_run", lambda run_id: record if run_id == record["run_id"] else None)
+    _save_generated(record)
 
     reviewed = api.approve_run(
         record["run_id"],

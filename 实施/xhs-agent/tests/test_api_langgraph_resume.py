@@ -48,3 +48,56 @@ def test_create_run_langgraph_waits_for_review(isolated_langgraph_api) -> None:
     assert record["summary"]["publish_status"] == "pending"
     assert record["summary"]["human_approved"] is False
     assert record["state"]["review_required"] is True
+
+
+def test_approve_run_resumes_graph_without_direct_node_calls(isolated_langgraph_api, monkeypatch) -> None:
+    record = api.create_run(
+        {
+            "topic": "小红书新手选题方法",
+            "target_user": "内容创作新手",
+            "format": "image_text",
+            "engine": "langgraph",
+            "collect_limit": 1,
+        }
+    )
+
+    monkeypatch.setattr(
+        api.publish_node,
+        "publish_or_schedule",
+        lambda state: (_ for _ in ()).throw(AssertionError("direct publish call")),
+    )
+    monkeypatch.setattr(
+        api,
+        "review_performance",
+        lambda state: (_ for _ in ()).throw(AssertionError("direct review call")),
+    )
+    monkeypatch.setattr(
+        api,
+        "write_operation_memory",
+        lambda state: (_ for _ in ()).throw(AssertionError("direct memory call")),
+    )
+
+    reviewed = api.approve_run(record["run_id"], {"feedback": "approved"})
+
+    assert reviewed["summary"]["run_status"] == "published"
+    assert reviewed["summary"]["publish_status"] == "success"
+    assert reviewed["state"]["operation_memory_written"] is True
+
+
+def test_reject_run_resumes_graph_to_rejected_state(isolated_langgraph_api) -> None:
+    record = api.create_run(
+        {
+            "topic": "小红书新手选题方法",
+            "target_user": "内容创作新手",
+            "format": "image_text",
+            "engine": "langgraph",
+            "collect_limit": 1,
+        }
+    )
+
+    rejected = api.reject_run(record["run_id"], {"feedback": "needs rewrite"})
+
+    assert rejected["summary"]["run_status"] == "rejected"
+    assert rejected["summary"]["publish_status"] == "rejected"
+    assert rejected["state"]["operation_memory_written"] is False
+    assert rejected["review_action"] == "rejected"

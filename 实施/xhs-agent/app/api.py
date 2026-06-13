@@ -1003,19 +1003,34 @@ def approve_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str,
     record = _load_run(run_id)
     if not record:
         raise ValueError(f"Run not found: {run_id}")
-    if record.get("status") != "success":
-        raise ValueError("Only successful generated runs can be approved")
-
     state = _state_from_record(record)
     if not state or not _content_payload(state):
         raise ValueError("Run does not contain a resumable draft state")
     if state.get("publish_status") == "success":
         return record
+    if record.get("summary", {}).get("run_status") != "waiting_review":
+        raise ValueError("Only waiting_review LangGraph runs can be approved")
     if state.get("compliance_risk_level") == "high":
         raise ValueError("High-risk compliance result cannot be approved directly")
 
     payload = payload or {}
     _validate_creator_publish_payload(payload)
+    feedback = str(payload.get("feedback") or "Human review approved.").strip()
+    result = resume_graph_thread(
+        run_id,
+        {
+            "action": "approved",
+            "feedback": feedback,
+            "creator_publish": _bool(payload.get("creator_publish"), default=False),
+            "creator_publish_private": _bool(payload.get("creator_publish_private"), default=False),
+            "creator_human_confirmed": _bool(payload.get("creator_human_confirmed"), default=False),
+        },
+        checkpoint_db_path=RUNTIME_CHECKPOINT_DB_PATH,
+    )
+    reviewed = _save_reviewed_run(record, result.state, review_action="approved")
+    LOGGER.info("run_approved run_id=%s", run_id)
+    return reviewed
+
     feedback = str(payload.get("feedback") or "人工审核通过。").strip()
     state["human_approved"] = True
     state["human_feedback"] = feedback
@@ -1035,14 +1050,23 @@ def reject_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str, 
     record = _load_run(run_id)
     if not record:
         raise ValueError(f"Run not found: {run_id}")
-    if record.get("status") != "success":
-        raise ValueError("Only successful generated runs can be rejected")
-
     state = _state_from_record(record)
     if state.get("publish_status") == "success":
         raise ValueError("Run has already been approved and saved")
+    if record.get("summary", {}).get("run_status") != "waiting_review":
+        raise ValueError("Only waiting_review LangGraph runs can be rejected")
 
     payload = payload or {}
+    feedback = str(payload.get("feedback") or "Human review rejected.").strip()
+    result = resume_graph_thread(
+        run_id,
+        {"action": "rejected", "feedback": feedback},
+        checkpoint_db_path=RUNTIME_CHECKPOINT_DB_PATH,
+    )
+    reviewed = _save_reviewed_run(record, result.state, review_action="rejected")
+    LOGGER.info("run_rejected run_id=%s", run_id)
+    return reviewed
+
     feedback = str(payload.get("feedback") or "人工审核不通过。").strip()
     topic = state.get("user_topic") or record.get("request", {}).get("topic") or "未命名主题"
     state.update(
