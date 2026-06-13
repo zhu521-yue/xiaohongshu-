@@ -33,9 +33,12 @@ class Settings:
     queue_poll_seconds: float
     queue_max_attempts: int
     queue_lock_timeout_seconds: int
+    queue_heartbeat_timeout_seconds: int
     worker_id: str | None
     memory_store_backend: str
     memory_db_path: str
+    db_schema: str
+    business_tables_enabled: bool
 
 
 COLD_START_RULES = {
@@ -70,6 +73,13 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
 def _optional_env(name: str) -> str | None:
     value = os.getenv(name)
     if value is None:
@@ -100,9 +110,12 @@ def load_settings() -> Settings:
         queue_poll_seconds=_env_float("XHS_AGENT_QUEUE_POLL_SECONDS", 1.0),
         queue_max_attempts=_env_int("XHS_AGENT_QUEUE_MAX_ATTEMPTS", 3),
         queue_lock_timeout_seconds=_env_int("XHS_AGENT_QUEUE_LOCK_TIMEOUT_SECONDS", 900),
+        queue_heartbeat_timeout_seconds=_env_int("XHS_AGENT_QUEUE_HEARTBEAT_TIMEOUT_SECONDS", 1800),
         worker_id=os.getenv("XHS_AGENT_WORKER_ID"),
         memory_store_backend=os.getenv("XHS_AGENT_MEMORY_STORE", "json").strip().lower() or "json",
         memory_db_path=os.getenv("XHS_AGENT_MEMORY_DB_PATH", "data/xhs_agent.sqlite3"),
+        db_schema=os.getenv("XHS_AGENT_DB_SCHEMA", "foundation").strip().lower() or "foundation",
+        business_tables_enabled=_env_bool("XHS_AGENT_BUSINESS_TABLES_ENABLED", False),
     )
 
 def get_stage_rules(account_stage:str)->dict:

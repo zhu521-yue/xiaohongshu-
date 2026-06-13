@@ -20,11 +20,13 @@ class XHSState(TypedDict, total=False):
 
     # 数据分析
     raw_notes: List[Dict[str, Any]]
+    collection_candidates: List[Dict[str, Any]]
     raw_comments: List[Dict[str, Any]]
     cleaned_notes: List[Dict[str, Any]]
     top_subtopics: List[Dict[str, Any]]
     pain_points: List[Dict[str, Any]]
     comment_insights: List[Dict[str, Any]]
+    analysis_report: Dict[str, Any]
     collect_limit: int
     save_collection: bool
     collection_path: Optional[str]

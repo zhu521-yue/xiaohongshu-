@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
@@ -437,6 +438,43 @@ def get_published_note_status(creator_note_id: str, limit: int = 50) -> dict[str
         "status": "not_found",
         "creator_note_id": clean_note_id,
         "error": f"creator note not found: {clean_note_id}",
+    }
+
+
+def wait_for_published_note_status(
+    creator_note_id: str,
+    limit: int = 50,
+    attempts: int = 5,
+    interval_seconds: float = 2.0,
+) -> dict[str, Any]:
+    safe_attempts = max(1, min(int(attempts or 1), 10))
+    safe_interval = max(0.0, min(float(interval_seconds or 0.0), 30.0))
+    waited_seconds = 0.0
+    last_result: dict[str, Any] | None = None
+
+    for attempt in range(1, safe_attempts + 1):
+        result = get_published_note_status(creator_note_id, limit=limit)
+        result["attempts"] = attempt
+        result["waited_seconds"] = round(waited_seconds, 3)
+        last_result = result
+
+        if result.get("status") == "synced":
+            return result
+        if result.get("status") != "not_found":
+            return result
+        if attempt >= safe_attempts or safe_interval <= 0:
+            return result
+
+        time.sleep(safe_interval)
+        waited_seconds += safe_interval
+
+    return last_result or {
+        "ok": False,
+        "status": "not_found",
+        "creator_note_id": str(creator_note_id or "").strip(),
+        "attempts": 0,
+        "waited_seconds": 0,
+        "error": "creator note status not checked",
     }
 
 

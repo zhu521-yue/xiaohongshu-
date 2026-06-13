@@ -267,6 +267,102 @@ def test_get_published_note_status_returns_unavailable_on_list_failure(monkeypat
     assert "XHS_CREATOR_COOKIES" in result["error"]
 
 
+def test_wait_for_published_note_status_retries_until_synced(monkeypatch) -> None:
+    calls: list[int] = []
+
+    def fake_status(creator_note_id: str, limit: int = 50) -> dict:
+        calls.append(limit)
+        if len(calls) == 1:
+            return {
+                "ok": False,
+                "status": "not_found",
+                "creator_note_id": creator_note_id,
+                "error": f"creator note not found: {creator_note_id}",
+            }
+        return {
+            "ok": True,
+            "status": "synced",
+            "creator_note_id": creator_note_id,
+            "visibility_label": "仅自己可见",
+        }
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(creator, "get_published_note_status", fake_status)
+    monkeypatch.setattr(creator.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    result = creator.wait_for_published_note_status(
+        "note_status_001",
+        limit=25,
+        attempts=3,
+        interval_seconds=0.5,
+    )
+
+    assert result["ok"] is True
+    assert result["status"] == "synced"
+    assert result["creator_note_id"] == "note_status_001"
+    assert result["attempts"] == 2
+    assert result["waited_seconds"] == 0.5
+    assert calls == [25, 25]
+    assert sleeps == [0.5]
+
+
+def test_wait_for_published_note_status_stops_on_unavailable(monkeypatch) -> None:
+    calls = 0
+
+    def fake_status(creator_note_id: str, limit: int = 50) -> dict:
+        nonlocal calls
+        calls += 1
+        return {
+            "ok": False,
+            "status": "unavailable",
+            "creator_note_id": creator_note_id,
+            "error": "creator notes unavailable",
+        }
+
+    monkeypatch.setattr(creator, "get_published_note_status", fake_status)
+
+    result = creator.wait_for_published_note_status(
+        "note_status_001",
+        attempts=5,
+        interval_seconds=0,
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "unavailable"
+    assert result["attempts"] == 1
+    assert result["waited_seconds"] == 0
+    assert calls == 1
+
+
+def test_wait_for_published_note_status_reports_final_not_found(monkeypatch) -> None:
+    calls = 0
+
+    def fake_status(creator_note_id: str, limit: int = 50) -> dict:
+        nonlocal calls
+        calls += 1
+        return {
+            "ok": False,
+            "status": "not_found",
+            "creator_note_id": creator_note_id,
+            "error": f"creator note not found: {creator_note_id}",
+        }
+
+    monkeypatch.setattr(creator, "get_published_note_status", fake_status)
+    monkeypatch.setattr(creator.time, "sleep", lambda seconds: None)
+
+    result = creator.wait_for_published_note_status(
+        "missing_note",
+        attempts=3,
+        interval_seconds=0.25,
+    )
+
+    assert result["ok"] is False
+    assert result["status"] == "not_found"
+    assert result["attempts"] == 3
+    assert result["waited_seconds"] == 0.5
+    assert calls == 3
+
+
 def test_mock_mode_does_not_import_spider_modules(monkeypatch) -> None:
     monkeypatch.setenv("CREATOR_MODE", "mock")
     before = set(sys.modules)

@@ -24,7 +24,10 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from app.config import load_settings
+from app.business_store import sync_run_business_tables
+from app.business_queries import get_business_run_snapshot as read_business_run_snapshot
 from app.graph import run_langgraph, run_local_graph
+from app.run_events import record_run_event
 from app.run_queue import LocalRunQueue, SQLiteRunQueue
 from app.run_store import LocalRunStore, SQLiteRunStore
 from memory.operation_store import load_history, operation_memory_path, update_record_performance
@@ -60,6 +63,8 @@ _FAILURE_CATEGORY_LABELS = {
     "compliance": "合规拦截",
     "unknown": "未分类失败，请查看错误详情",
 }
+_CONTROLLED_TERMINAL_STATUSES = {"cancelled", "timed_out"}
+_COMPLETED_RUN_STATUSES = {"success", "failed", "cancelled", "timed_out"}
 
 
 def _now_iso() -> str:
@@ -110,6 +115,7 @@ def _run_queue_service() -> LocalRunQueue | SQLiteRunQueue:
                 list_runs=_list_runs,
                 max_attempts=settings.queue_max_attempts,
                 lock_timeout_seconds=settings.queue_lock_timeout_seconds,
+                event_db_path=_event_db_path_for_settings(settings),
             )
         else:
             RUN_QUEUE_SERVICE = LocalRunQueue(
@@ -152,6 +158,13 @@ def _int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _failure_category_label(category: str | None) -> str | None:
     if not category:
         return None
@@ -185,6 +198,8 @@ def _summary_failure_category(state: dict[str, Any]) -> str | None:
 def _run_failure_category(status: str, error: str | None, summary: dict[str, Any] | None = None) -> str | None:
     if status == "failed":
         return _failure_category_from_text(error) or "unknown"
+    if status == "timed_out":
+        return "unknown"
     if isinstance(summary, dict):
         category = summary.get("failure_category")
         if category:
@@ -197,7 +212,113 @@ def _run_path(run_id: str) -> Path:
 
 
 def _save_run(record: dict[str, Any]) -> None:
-    _run_store().save(record)
+    store = _run_store()
+    store.save(record)
+    _maybe_record_run_lifecycle_event(record, store)
+    synced = _maybe_sync_business_tables(record, store)
+    if synced is not record:
+        record.clear()
+        record.update(synced)
+        store.save(record)
+
+
+def _maybe_sync_business_tables(
+    record: dict[str, Any],
+    store: LocalRunStore | SQLiteRunStore,
+) -> dict[str, Any]:
+    settings = load_settings()
+    if not settings.business_tables_enabled:
+        return record
+    if settings.db_schema != "foundation":
+        return record
+    if record.get("status") != "success":
+        return record
+    if not isinstance(store, SQLiteRunStore):
+        return record
+
+    updated = dict(record)
+    summary = dict(updated.get("summary") or {})
+    try:
+        counts = sync_run_business_tables(store.db_path, updated)
+    except Exception as exc:
+        summary["business_table_sync_status"] = "failed"
+        summary["business_table_sync_counts"] = {}
+        summary["business_table_sync_error"] = _sanitize_business_sync_error(exc)
+        updated["summary"] = summary
+        LOGGER.warning(
+            "business_table_sync_failed run_id=%s error=%s",
+            record.get("run_id"),
+            summary["business_table_sync_error"],
+        )
+        return updated
+
+    summary["business_table_sync_status"] = "success"
+    summary["business_table_sync_counts"] = counts
+    summary["business_table_sync_error"] = None
+    updated["summary"] = summary
+    return updated
+
+
+def _maybe_record_run_lifecycle_event(
+    record: dict[str, Any],
+    store: LocalRunStore | SQLiteRunStore,
+) -> None:
+    settings = load_settings()
+    if not settings.business_tables_enabled:
+        return
+    if settings.db_schema != "foundation":
+        return
+    if not isinstance(store, SQLiteRunStore):
+        return
+
+    status = str(record.get("status") or "").strip()
+    if status not in {"queued", "running", "success", "failed", "cancelled", "timed_out"}:
+        return
+
+    try:
+        record_run_event(
+            store.db_path,
+            run_id=str(record.get("run_id") or ""),
+            event_type=status,
+            status=status,
+            message=_lifecycle_event_message(status),
+            error=record.get("error"),
+            started_at=record.get("started_at"),
+            finished_at=record.get("finished_at"),
+            payload={
+                "request": record.get("request") or {},
+                "failure_category": record.get("failure_category"),
+            },
+            created_at=str(record.get("updated_at") or record.get("created_at") or _now_iso()),
+        )
+    except Exception as exc:
+        LOGGER.warning(
+            "run_event_record_failed run_id=%s status=%s error=%s",
+            record.get("run_id"),
+            status,
+            _sanitize_business_sync_error(exc),
+        )
+
+
+def _event_db_path_for_settings(settings: Any) -> Path | None:
+    if not settings.business_tables_enabled:
+        return None
+    if settings.db_schema != "foundation":
+        return None
+    if settings.run_store_backend != "sqlite":
+        return None
+    return _resolve_project_path(settings.run_db_path)
+
+
+def _lifecycle_event_message(status: str) -> str:
+    return {
+        "queued": "run queued",
+        "running": "run running",
+        "success": "run succeeded",
+        "failed": "run failed",
+        "cancelled": "run cancelled",
+        "timed_out": "run timed out",
+    }.get(status, f"run {status}")
 
 
 def _load_run(run_id: str) -> dict[str, Any] | None:
@@ -361,9 +482,11 @@ def _content_payload(state: dict[str, Any]) -> dict[str, Any]:
 
 def _insight_payload(state: dict[str, Any]) -> dict[str, Any]:
     return {
+        "collection_candidates": state.get("collection_candidates") or [],
         "comment_insights": state.get("comment_insights") or [],
         "pain_points": state.get("pain_points") or [],
         "comment_fetch_errors": state.get("comment_fetch_errors") or [],
+        "analysis_report": state.get("analysis_report") or {},
     }
 
 
@@ -448,12 +571,35 @@ def _runner_for_request(request_payload: dict[str, Any]):
     return run_langgraph if request_payload["engine"] == "langgraph" else run_local_graph
 
 
+def _run_workflow(
+    request_payload: dict[str, Any],
+    initial_state: dict[str, Any],
+    *,
+    run_id: str,
+) -> dict[str, Any]:
+    if request_payload["engine"] == "local":
+        store = _run_store()
+        settings = load_settings()
+        if (
+            settings.business_tables_enabled
+            and settings.db_schema == "foundation"
+            and isinstance(store, SQLiteRunStore)
+        ):
+            return run_local_graph(initial_state, run_id=run_id, event_db_path=store.db_path)
+        return run_local_graph(initial_state)
+    return run_langgraph(initial_state)
+
+
 def _finish_run(
     existing: dict[str, Any],
     status: str,
     state: dict[str, Any] | None = None,
     error: str | None = None,
 ) -> dict[str, Any]:
+    current = _load_run(str(existing.get("run_id") or ""))
+    if current and current.get("status") in _CONTROLLED_TERMINAL_STATUSES:
+        return current
+
     record = _run_record(
         run_id=existing["run_id"],
         request_payload=existing["request"],
@@ -466,6 +612,67 @@ def _finish_run(
     )
     _save_run(record)
     return record
+
+
+def _control_run(
+    run_id: str,
+    payload: dict[str, Any],
+    *,
+    status: str,
+    default_reason: str,
+) -> dict[str, Any]:
+    clean_run_id = str(run_id or "").strip()
+    if not clean_run_id:
+        raise ValueError("run_id is required")
+
+    existing = _load_run(clean_run_id)
+    if not existing:
+        raise ValueError(f"Run not found: {clean_run_id}")
+
+    existing_status = str(existing.get("status") or "").strip()
+    if existing_status in _COMPLETED_RUN_STATUSES:
+        raise ValueError("cannot control completed run")
+
+    reason = str(payload.get("reason") or default_reason).strip() or default_reason
+    operator = str(payload.get("operator") or "api").strip() or "api"
+    queue = _run_queue_service()
+    if isinstance(queue, SQLiteRunQueue):
+        if status == "cancelled":
+            queue.cancel(clean_run_id, worker_id=operator, reason=reason)
+        elif status == "timed_out":
+            queue.mark_timed_out(clean_run_id, worker_id=operator, reason=reason)
+
+    record = dict(existing)
+    record["status"] = status
+    record["updated_at"] = _now_iso()
+    record["finished_at"] = record.get("finished_at") or record["updated_at"]
+    record["error"] = reason
+    record["failure_category"] = _run_failure_category(status, reason, record.get("summary") or {})
+    record["failure_category_label"] = _failure_category_label(record.get("failure_category"))
+    summary = dict(record.get("summary") or {})
+    summary["control_status"] = status
+    summary["control_reason"] = reason
+    record["summary"] = summary
+    _save_run(record)
+    return _decorate_run_record(record)
+
+
+def cancel_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    return _control_run(
+        run_id,
+        payload or {},
+        status="cancelled",
+        default_reason="run cancelled by operator",
+    )
+
+
+def timeout_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    return _control_run(
+        run_id,
+        payload or {},
+        status="timed_out",
+        default_reason="run timed out by operator",
+    )
 
 
 def _decorate_run_record(record: dict[str, Any]) -> dict[str, Any]:
@@ -642,6 +849,10 @@ def _sanitize_creator_error(error: Any) -> str:
         text = re.sub(pattern, _redacted_creator_error_match, text)
     text = re.sub(r"(?i)(cookie=\[REDACTED\])(?:;\s*[^,\s;=]+=[^,\s;]+)+", r"\1", text)
     return text
+
+
+def _sanitize_business_sync_error(error: Any) -> str:
+    return _sanitize_creator_error(error)[:500]
 
 
 def _redacted_creator_error_match(match: re.Match[str]) -> str:
@@ -854,11 +1065,10 @@ def _execute_run(run_id: str) -> None:
 
     running = _mark_run_running(existing)
     request_payload = running["request"]
-    runner = _runner_for_request(request_payload)
     initial_state = _initial_state_from_request(request_payload)
 
     try:
-        final_state = runner(initial_state)
+        final_state = _run_workflow(request_payload, initial_state, run_id=run_id)
     except Exception as exc:
         _finish_run(running, status="failed", error=str(exc))
         return
@@ -880,11 +1090,10 @@ def create_run(payload: dict[str, Any]) -> dict[str, Any]:
     request_payload = _build_run_request(payload)
     run_id = f"run_{uuid.uuid4().hex[:12]}"
     started_at = _now_iso()
-    runner = _runner_for_request(request_payload)
     initial_state = _initial_state_from_request(request_payload)
 
     try:
-        final_state = runner(initial_state)
+        final_state = _run_workflow(request_payload, initial_state, run_id=run_id)
     except Exception as exc:
         record = _run_record(
             run_id,
@@ -967,12 +1176,36 @@ def list_creator_notes(limit: int = 20) -> dict[str, Any]:
     return {"creator_notes": creator_platform.list_published_notes(limit=max(0, int(limit)))}
 
 
-def get_creator_note_status(creator_note_id: str, limit: int = 50) -> dict[str, Any]:
+def get_business_run_snapshot(run_id: str) -> dict[str, Any]:
+    store = _run_store()
+    if not isinstance(store, SQLiteRunStore):
+        raise ValueError("Business table queries require SQLite run store")
     return {
-        "creator_note_status": creator_platform.get_published_note_status(
-            creator_note_id=creator_note_id,
-            limit=max(0, int(limit)),
-        )
+        "business_run": read_business_run_snapshot(store.db_path, run_id),
+    }
+
+
+def get_creator_note_status(
+    creator_note_id: str,
+    limit: int = 50,
+    wait: bool = False,
+    attempts: int = 5,
+    interval_seconds: float = 2.0,
+) -> dict[str, Any]:
+    status_getter = (
+        creator_platform.wait_for_published_note_status
+        if wait
+        else creator_platform.get_published_note_status
+    )
+    kwargs: dict[str, Any] = {
+        "creator_note_id": creator_note_id,
+        "limit": max(0, int(limit)),
+    }
+    if wait:
+        kwargs["attempts"] = max(1, int(attempts))
+        kwargs["interval_seconds"] = max(0.0, float(interval_seconds))
+    return {
+        "creator_note_status": status_getter(**kwargs)
     }
 
 
@@ -1167,11 +1400,34 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
         if path == "/creator/notes/status":
             creator_note_id = str(query.get("creator_note_id", [""])[0] or "").strip()
             note_limit = int(query.get("limit", ["50"])[0] or 50)
-            self._send_json(200, {"ok": True, **get_creator_note_status(creator_note_id, limit=note_limit)})
+            wait_for_sync = _bool((query.get("wait") or ["false"])[0], default=False)
+            attempts = _int((query.get("attempts") or ["5"])[0], default=5)
+            interval_seconds = _float(
+                (query.get("interval_seconds") or ["2"])[0],
+                default=2.0,
+            )
+            self._send_json(
+                200,
+                {
+                    "ok": True,
+                    **get_creator_note_status(
+                        creator_note_id,
+                        limit=note_limit,
+                        wait=wait_for_sync,
+                        attempts=attempts,
+                        interval_seconds=interval_seconds,
+                    ),
+                },
+            )
             return
 
         if path == "/creator/notes":
             self._send_json(200, {"ok": True, **list_creator_notes(limit=limit)})
+            return
+
+        if path.startswith("/business/runs/"):
+            run_id = path.split("/", 3)[3]
+            self._send_json(200, {"ok": True, **get_business_run_snapshot(run_id)})
             return
 
         if path.startswith("/runs/"):
@@ -1221,6 +1477,16 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
 
             if len(parts) == 3 and parts[0] == "runs" and parts[2] == "reject":
                 record = reject_run(parts[1], payload)
+                self._send_json(200, {"ok": True, "run": record})
+                return
+
+            if len(parts) == 3 and parts[0] == "runs" and parts[2] == "cancel":
+                record = cancel_run(parts[1], payload)
+                self._send_json(200, {"ok": True, "run": record})
+                return
+
+            if len(parts) == 3 and parts[0] == "runs" and parts[2] == "timeout":
+                record = timeout_run(parts[1], payload)
                 self._send_json(200, {"ok": True, "run": record})
                 return
 

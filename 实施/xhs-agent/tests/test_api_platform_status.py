@@ -95,3 +95,85 @@ def test_http_platform_status_endpoint_returns_platform_status(monkeypatch, tmp_
 
     assert status == 200
     assert data == {"ok": True, "platform_status": expected}
+
+
+def test_http_creator_note_status_endpoint_passes_wait_parameters(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XHS_AGENT_API_TOKEN", "secret-token")
+    monkeypatch.setenv("XHS_AGENT_RUN_STORE", "json")
+    monkeypatch.setenv("XHS_AGENT_RUN_QUEUE", "local")
+
+    def fake_status(
+        creator_note_id: str,
+        limit: int = 50,
+        wait: bool = False,
+        attempts: int = 5,
+        interval_seconds: float = 2.0,
+    ) -> dict:
+        assert creator_note_id == "note_wait_001"
+        assert limit == 30
+        assert wait is True
+        assert attempts == 4
+        assert interval_seconds == 0.5
+        return {
+            "creator_note_status": {
+                "ok": True,
+                "status": "synced",
+                "creator_note_id": creator_note_id,
+                "attempts": attempts,
+                "waited_seconds": 0.5,
+            }
+        }
+
+    monkeypatch.setattr(api, "get_creator_note_status", fake_status, raising=False)
+
+    server_urls = _start_test_server(monkeypatch, tmp_path)
+    base_url = next(server_urls)
+    try:
+        status, data = _read_json(
+            (
+                f"{base_url}/creator/notes/status"
+                "?creator_note_id=note_wait_001&limit=30&wait=true"
+                "&attempts=4&interval_seconds=0.5"
+            ),
+            {"Authorization": "Bearer secret-token"},
+        )
+    finally:
+        try:
+            next(server_urls)
+        except StopIteration:
+            pass
+
+    assert status == 200
+    assert data["ok"] is True
+    assert data["creator_note_status"]["status"] == "synced"
+
+
+def test_http_business_run_endpoint_returns_business_snapshot(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("XHS_AGENT_API_TOKEN", "secret-token")
+    monkeypatch.setenv("XHS_AGENT_RUN_STORE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_RUN_DB_PATH", str(tmp_path / "xhs_agent.sqlite3"))
+    monkeypatch.setenv("XHS_AGENT_RUN_QUEUE", "local")
+    expected = {
+        "business_run": {
+            "run_id": "run_business_http",
+            "counts": {"raw_notes": 1},
+            "raw_notes": [{"title": "HTTP 查询测试"}],
+        }
+    }
+    monkeypatch.setattr(api, "get_business_run_snapshot", lambda run_id: expected, raising=False)
+
+    server_urls = _start_test_server(monkeypatch, tmp_path)
+    base_url = next(server_urls)
+    try:
+        status, data = _read_json(
+            f"{base_url}/business/runs/run_business_http",
+            {"Authorization": "Bearer secret-token"},
+        )
+    finally:
+        try:
+            next(server_urls)
+        except StopIteration:
+            pass
+
+    assert status == 200
+    assert data == {"ok": True, **expected}

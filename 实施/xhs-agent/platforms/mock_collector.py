@@ -109,11 +109,36 @@ def collect_topic_insights(topic: str, limit: int = 5) -> dict:
     raw_notes = samples["raw_notes"]
     raw_comments = samples["raw_comments"]
     comment_insights = extract_comment_insights(topic, raw_comments)
+    collection_candidates = [
+        {
+            "rank": index + 1,
+            "selected": True,
+            "original_index": index,
+            "title": note.get("title") or "",
+            "note_url": note.get("note_url") or "",
+            "comments": note.get("comments") or 0,
+            "likes": note.get("likes") or 0,
+            "collects": note.get("collects") or 0,
+            "shares": note.get("shares") or 0,
+            "score": 100 - index,
+            "score_breakdown": {
+                "topic_relevance": 60,
+                "comments": 15,
+                "interaction": 15,
+                "quality": 10,
+                "penalty": 0,
+            },
+            "reasons": ["mock 候选样本"],
+            "penalties": [],
+        }
+        for index, note in enumerate(raw_notes)
+    ]
 
     return {
         "raw_notes": raw_notes,
         "raw_comments": raw_comments,
         "cleaned_notes": clean_notes(raw_notes),
+        "collection_candidates": collection_candidates,
         "top_subtopics": extract_subtopics(topic, raw_comments),
         "comment_insights": comment_insights,
         "pain_points": insights_to_pain_points(topic, comment_insights),

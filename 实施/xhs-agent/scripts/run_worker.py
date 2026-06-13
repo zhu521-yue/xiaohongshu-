@@ -39,6 +39,9 @@ def run_once(
         return False
 
     logger.info("worker_claimed run_id=%s worker_id=%s", run_id, worker_id)
+    heartbeat = getattr(queue, "heartbeat", None)
+    if callable(heartbeat):
+        heartbeat(run_id, worker_id)
     try:
         execute_run(run_id)
         record = load_run(run_id) or {}
@@ -60,6 +63,26 @@ def run_once(
     return True
 
 
+def run_watchdog_once(
+    queue: SQLiteRunQueue,
+    *,
+    max_seconds: int,
+    worker_id: str,
+    reason: str | None = None,
+) -> list[str]:
+    timed_out = queue.mark_stale_running_as_timed_out(
+        max_seconds=max_seconds,
+        worker_id=worker_id,
+        reason=reason,
+    )
+    logging.getLogger("xhs_agent.worker").info(
+        "watchdog_scanned timed_out_count=%s worker_id=%s",
+        len(timed_out),
+        worker_id,
+    )
+    return timed_out
+
+
 def run_loop(worker_id: str, poll_seconds: float) -> None:
     logger = logging.getLogger("xhs_agent.worker")
     queue = api._run_queue_service()
@@ -75,6 +98,7 @@ def run_loop(worker_id: str, poll_seconds: float) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run SQLite queue worker for xhs-agent.")
     parser.add_argument("--once", action="store_true", help="Process at most one queued job and exit.")
+    parser.add_argument("--watchdog-once", action="store_true", help="Mark stale running jobs as timed out and exit.")
     parser.add_argument("--worker-id", default=None, help="Stable worker id for queue locks.")
     args = parser.parse_args(argv)
 
@@ -85,6 +109,14 @@ def main(argv: list[str] | None = None) -> int:
     queue = api._run_queue_service()
     if not isinstance(queue, SQLiteRunQueue):
         raise RuntimeError("scripts/run_worker.py requires XHS_AGENT_RUN_QUEUE=sqlite")
+
+    if args.watchdog_once:
+        run_watchdog_once(
+            queue=queue,
+            max_seconds=settings.queue_heartbeat_timeout_seconds,
+            worker_id=worker_id,
+        )
+        return 0
 
     if args.once:
         return 0 if run_once(queue=queue, worker_id=worker_id, logger=logger) else 1

@@ -41,11 +41,55 @@ def test_sqlite_worker_profile_checks_sqlite_backends(tmp_path: Path, monkeypatc
     monkeypatch.setenv("XHS_AGENT_QUEUE_DB_PATH", str(db_path))
     monkeypatch.setenv("XHS_AGENT_MEMORY_STORE", "sqlite")
     monkeypatch.setenv("XHS_AGENT_MEMORY_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_BUSINESS_TABLES_ENABLED", "true")
 
     results = check_profile("sqlite-worker")
 
     assert not [result for result in results if result.level == "FAIL"]
     assert any("run queue backend: sqlite" in result.message for result in results)
+    assert any(result.level == "PASS" and "business table writes enabled" in result.message for result in results)
+    assert any(
+        result.level == "PASS" and "queue heartbeat timeout seconds" in result.message
+        for result in results
+    )
+
+
+def test_sqlite_worker_profile_fails_when_heartbeat_timeout_disabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "xhs_agent.sqlite3"
+    monkeypatch.setenv("XHS_AGENT_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("XHS_AGENT_RUN_STORE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_RUN_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_RUN_QUEUE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_QUEUE_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_MEMORY_STORE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_MEMORY_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_QUEUE_HEARTBEAT_TIMEOUT_SECONDS", "0")
+
+    results = check_profile("sqlite-worker")
+
+    assert any(
+        result.level == "FAIL" and "queue heartbeat timeout seconds must be positive" in result.message
+        for result in results
+    )
+
+
+def test_local_profile_warns_when_business_tables_enabled_without_sqlite_store(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("XHS_AGENT_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("XHS_AGENT_RUN_STORE", "json")
+    monkeypatch.setenv("XHS_AGENT_BUSINESS_TABLES_ENABLED", "true")
+
+    results = check_profile("local")
+
+    assert any(
+        result.level == "WARN" and "business table writes require sqlite run store" in result.message
+        for result in results
+    )
 
 
 def test_sqlite_worker_profile_matches_resolved_relative_and_absolute_db_paths(

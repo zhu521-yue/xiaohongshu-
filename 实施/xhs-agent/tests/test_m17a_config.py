@@ -9,6 +9,8 @@ def test_guardrail_settings_default_to_development_safe_values(monkeypatch) -> N
     monkeypatch.delenv("XHS_AGENT_LOG_LEVEL", raising=False)
     monkeypatch.delenv("XHS_AGENT_LOG_MAX_BYTES", raising=False)
     monkeypatch.delenv("XHS_AGENT_LOG_BACKUP_COUNT", raising=False)
+    monkeypatch.delenv("XHS_AGENT_DB_SCHEMA", raising=False)
+    monkeypatch.delenv("XHS_AGENT_BUSINESS_TABLES_ENABLED", raising=False)
 
     settings = load_settings()
 
@@ -17,6 +19,8 @@ def test_guardrail_settings_default_to_development_safe_values(monkeypatch) -> N
     assert settings.log_level == "INFO"
     assert settings.log_max_bytes == 1048576
     assert settings.log_backup_count == 5
+    assert settings.db_schema == "foundation"
+    assert settings.business_tables_enabled is False
 
 
 def test_guardrail_settings_read_environment(monkeypatch) -> None:
@@ -25,6 +29,8 @@ def test_guardrail_settings_read_environment(monkeypatch) -> None:
     monkeypatch.setenv("XHS_AGENT_LOG_LEVEL", "debug")
     monkeypatch.setenv("XHS_AGENT_LOG_MAX_BYTES", "2048")
     monkeypatch.setenv("XHS_AGENT_LOG_BACKUP_COUNT", "2")
+    monkeypatch.setenv("XHS_AGENT_DB_SCHEMA", "foundation")
+    monkeypatch.setenv("XHS_AGENT_BUSINESS_TABLES_ENABLED", "true")
 
     settings = load_settings()
 
@@ -33,3 +39,5 @@ def test_guardrail_settings_read_environment(monkeypatch) -> None:
     assert settings.log_level == "DEBUG"
     assert settings.log_max_bytes == 2048
     assert settings.log_backup_count == 2
+    assert settings.db_schema == "foundation"
+    assert settings.business_tables_enabled is True

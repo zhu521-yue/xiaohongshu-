@@ -20,11 +20,25 @@ sys.path.insert(0, str(ROOT))
 load_dotenv(ROOT / ".env")
 
 from platforms import spider_xhs_collector as collector  # noqa: E402
+from platforms.analysis_report import build_analysis_report  # noqa: E402
 
 
 def _print_step(name: str, status: str, detail: str = "") -> None:
     suffix = f" - {detail}" if detail else ""
     print(f"[{status}] {name}{suffix}")
+
+
+def _print_json(data) -> None:
+    text = json.dumps(data, ensure_ascii=False, indent=2) + "\n"
+    try:
+        sys.stdout.write(text)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        safe_text = text.encode(encoding, errors="backslashreplace").decode(
+            encoding,
+            errors="replace",
+        )
+        sys.stdout.write(safe_text)
 
 
 def _get_cookie() -> str | None:
@@ -68,10 +82,21 @@ def check_vendor_import():
     return api
 
 
-def run_search(api, cookie: str, topic: str, limit: int, debug_search: bool) -> list[dict]:
+def run_search(api, cookie: str, topic: str, limit: int, debug_search: bool) -> tuple[list[dict], list[dict]]:
     note_limit = min(limit, collector._env_int("XHS_NOTE_LIMIT", limit))
+    candidate_multiplier = max(1, collector._env_int("XHS_CANDIDATE_POOL_MULTIPLIER", 3))
+    default_candidate_limit = max(note_limit, min(20, note_limit * candidate_multiplier))
+    candidate_pool_limit = max(
+        note_limit,
+        collector._env_int("XHS_CANDIDATE_POOL_LIMIT", default_candidate_limit),
+    )
+    search_limit = max(note_limit, min(candidate_pool_limit, note_limit * candidate_multiplier))
     sort_type_choice = collector._env_int("XHS_SORT_TYPE", 2)
-    _print_step("search request", "RUN", f"topic={topic}, limit={note_limit}, sort={sort_type_choice}")
+    _print_step(
+        "search request",
+        "RUN",
+        f"topic={topic}, selected_limit={note_limit}, search_limit={search_limit}, sort={sort_type_choice}",
+    )
 
     if debug_search:
         with collector._vendor_working_directory():
@@ -84,20 +109,16 @@ def run_search(api, cookie: str, topic: str, limit: int, debug_search: bool) -> 
             )
         if not success:
             raise RuntimeError(f"Spider_XHS search failed: {msg}")
-        print(
-            json.dumps(
-                {"search_response_debug": collector._search_response_summary(res_json, max_items=note_limit)},
-                ensure_ascii=False,
-                indent=2,
-            )
+        _print_json(
+            {"search_response_debug": collector._search_response_summary(res_json, max_items=search_limit)}
         )
         notes = (res_json.get("data") or {}).get("items") or []
-        notes = notes[:note_limit]
+        notes = notes[:search_limit]
     else:
         with collector._vendor_working_directory():
             success, msg, notes = api.search_some_note(
                 topic,
-                note_limit,
+                search_limit,
                 cookie,
                 sort_type_choice=sort_type_choice,
                 note_type=0,
@@ -106,31 +127,51 @@ def run_search(api, cookie: str, topic: str, limit: int, debug_search: bool) -> 
             raise RuntimeError(f"Spider_XHS search failed: {msg}")
 
     raw_notes = [collector._deidentify_note(note) for note in notes]
-    filtered_notes = [note for note in raw_notes if collector._is_useful_note(note)]
-    notes_for_comments = filtered_notes or raw_notes
+    collection_candidates = collector.score_collection_candidates(
+        topic,
+        raw_notes,
+        selected_limit=note_limit,
+    )
+    selected_indices = [
+        int(candidate.get("original_index"))
+        for candidate in collection_candidates
+        if candidate.get("selected") is True
+    ]
+    notes_for_comments = [raw_notes[index] for index in selected_indices]
+    if not notes_for_comments:
+        notes_for_comments = raw_notes[:note_limit]
 
     _print_step(
         "search request",
         "OK",
-        f"raw_notes={len(raw_notes)}, filtered_notes={len(notes_for_comments)}",
+        f"raw_notes={len(raw_notes)}, selected_notes={len(notes_for_comments)}",
     )
-    print(
-        json.dumps(
-            {
-                "search_filter_summary": {
-                    "raw_notes_count": len(raw_notes),
-                    "filtered_notes_count": len(notes_for_comments),
-                    "fallback_to_raw": not filtered_notes,
-                },
-                "raw_notes": raw_notes,
-                "filtered_notes": notes_for_comments,
+    _print_json(
+        {
+            "search_filter_summary": {
+                "raw_notes_count": len(raw_notes),
+                "selected_notes_count": len(notes_for_comments),
+                "fallback_to_raw": not selected_indices,
             },
-            ensure_ascii=False,
-            indent=2,
-        )
+            "candidate_score_summary": [
+                {
+                    "rank": candidate.get("rank"),
+                    "selected": candidate.get("selected"),
+                    "title": candidate.get("title"),
+                    "score": candidate.get("score"),
+                    "score_breakdown": candidate.get("score_breakdown"),
+                    "reasons": candidate.get("reasons"),
+                    "penalties": candidate.get("penalties"),
+                }
+                for candidate in collection_candidates[:10]
+            ],
+            "collection_candidates": collection_candidates,
+            "raw_notes": raw_notes,
+            "selected_notes": notes_for_comments,
+            "filtered_notes": notes_for_comments,
+        }
     )
-    return notes_for_comments
-
+    return notes_for_comments, collection_candidates
 
 def run_comments(api, cookie: str, raw_notes: list[dict], debug_response: bool) -> list[dict]:
     comments_per_note = collector._env_int("XHS_COMMENTS_PER_NOTE", 5)
@@ -154,17 +195,13 @@ def run_comments(api, cookie: str, raw_notes: list[dict], debug_response: bool) 
             debug=debug_response,
         )
         if debug_response:
-            print(
-                json.dumps(
-                    {
-                        "comment_response_debug": {
-                            "note_title": note.get("title", "untitled"),
-                            "responses": debug_responses,
-                        }
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                )
+            _print_json(
+                {
+                    "comment_response_debug": {
+                        "note_title": note.get("title", "untitled"),
+                        "responses": debug_responses,
+                    }
+                }
             )
         if error:
             _print_step("comment request", "WARN", f"{note.get('title', 'untitled')}: {error}")
@@ -183,19 +220,15 @@ def run_comments(api, cookie: str, raw_notes: list[dict], debug_response: bool) 
         "OK",
         f"fetched={fetched_comments_count}, kept={len(raw_comments)}, dropped={dropped_comments_count}",
     )
-    print(
-        json.dumps(
-            {
-                "comment_filter_summary": {
-                    "fetched_comments_count": fetched_comments_count,
-                    "kept_comments_count": len(raw_comments),
-                    "dropped_comments_count": dropped_comments_count,
-                },
-                "raw_comments": raw_comments,
+    _print_json(
+        {
+            "comment_filter_summary": {
+                "fetched_comments_count": fetched_comments_count,
+                "kept_comments_count": len(raw_comments),
+                "dropped_comments_count": dropped_comments_count,
             },
-            ensure_ascii=False,
-            indent=2,
-        )
+            "raw_comments": raw_comments,
+        }
     )
     return raw_comments
 
@@ -209,17 +242,36 @@ def print_comment_insights(topic: str, raw_comments: list[dict]) -> tuple[list[d
         "OK",
         f"insights={len(comment_insights)}, pain_points={len(pain_points)}",
     )
-    print(
-        json.dumps(
-            {
-                "comment_insights": comment_insights,
-                "pain_points": pain_points,
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
+    _print_json(
+        {
+            "comment_insights": comment_insights,
+            "pain_points": pain_points,
+        }
     )
     return comment_insights, pain_points
+
+
+def build_collection_diagnostic_payload(
+    *,
+    topic: str,
+    raw_notes: list[dict],
+    collection_candidates: list[dict],
+    raw_comments: list[dict],
+    comment_insights: list[dict],
+    pain_points: list[dict],
+    comment_fetch_errors: list[dict],
+) -> dict:
+    return {
+        "analysis_report": build_analysis_report(
+            topic=topic,
+            collection_candidates=collection_candidates,
+            raw_notes=raw_notes,
+            raw_comments=raw_comments,
+            comment_insights=comment_insights,
+            pain_points=pain_points,
+            comment_fetch_errors=comment_fetch_errors,
+        )
+    }
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -255,7 +307,7 @@ def main() -> int:
         _print_step("live search", "FAIL", "missing cookie; cannot call Spider_XHS")
         return 2
 
-    raw_notes = run_search(api, cookie, args.topic, args.limit, args.debug_search)
+    raw_notes, collection_candidates = run_search(api, cookie, args.topic, args.limit, args.debug_search)
     raw_comments: list[dict] = []
     comment_insights: list[dict] = []
     pain_points: list[dict] = []
@@ -265,15 +317,29 @@ def main() -> int:
     else:
         _print_step("comment request", "SKIP", "pass --comments after search works")
 
+    diagnostic_payload = build_collection_diagnostic_payload(
+        topic=args.topic,
+        raw_notes=raw_notes,
+        collection_candidates=collection_candidates,
+        raw_comments=raw_comments,
+        comment_insights=comment_insights,
+        pain_points=pain_points,
+        comment_fetch_errors=[],
+    )
+    _print_step("analysis report", "OK", diagnostic_payload["analysis_report"]["summary"])
+    _print_json(diagnostic_payload)
+
     if args.save:
         result = {
             "raw_notes": raw_notes,
             "raw_comments": raw_comments,
             "cleaned_notes": collector.clean_notes(raw_notes),
+            "collection_candidates": collection_candidates,
             "top_subtopics": collector.extract_subtopics(args.topic, raw_comments),
             "comment_insights": comment_insights,
             "pain_points": pain_points,
             "comment_fetch_errors": [],
+            "analysis_report": diagnostic_payload["analysis_report"],
         }
         path = collector.save_collection_result(args.topic, result)
         _print_step("save", "OK", str(path))

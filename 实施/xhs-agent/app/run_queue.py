@@ -14,6 +14,8 @@ from pathlib import Path
 from queue import Queue
 from typing import Any, Callable
 
+from app.queue_events import record_queue_event_safely
+
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
@@ -106,8 +108,10 @@ class SQLiteRunQueue:
         list_runs: Callable[[int], list[dict[str, Any]]],
         max_attempts: int = 3,
         lock_timeout_seconds: int = 900,
+        event_db_path: str | Path | None = None,
     ) -> None:
         self.db_path = Path(db_path)
+        self.event_db_path = Path(event_db_path) if event_db_path is not None else None
         self._list_runs = list_runs
         self._max_attempts = max(1, _safe_int(max_attempts, 3))
         self._lock_timeout_seconds = max(1, _safe_int(lock_timeout_seconds, 900))
@@ -119,7 +123,13 @@ class SQLiteRunQueue:
         if not run_id:
             return
         now = _now_iso()
+        should_record_event = False
+        event_payload: dict[str, Any] = {}
         with self._lock, self._connect() as connection:
+            existing = connection.execute(
+                "SELECT status FROM run_queue_jobs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
             connection.execute(
                 """
                 INSERT INTO run_queue_jobs (
@@ -147,6 +157,17 @@ class SQLiteRunQueue:
                 """,
                 (run_id, self._max_attempts, now, now, now),
             )
+            should_record_event = existing is None or existing["status"] == "failed"
+            if existing is not None:
+                event_payload["previous_status"] = existing["status"]
+        if should_record_event:
+            self._record_queue_event(
+                run_id,
+                "queue_enqueued",
+                attempts=0,
+                max_attempts=self._max_attempts,
+                payload=event_payload,
+            )
 
     def recover_pending_runs(self) -> None:
         pending = [
@@ -164,15 +185,19 @@ class SQLiteRunQueue:
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 """
-                SELECT run_id, status, created_at
+                SELECT
+                    run_id, status, attempts, max_attempts, locked_by,
+                    heartbeat_at, last_error, created_at
                 FROM run_queue_jobs
-                WHERE status IN ('queued', 'running', 'failed')
+                WHERE status IN ('queued', 'running', 'failed', 'cancelled', 'timed_out')
                 ORDER BY created_at ASC
                 """
             ).fetchall()
         queued = [row["run_id"] for row in rows if row["status"] == "queued"]
         running = [row["run_id"] for row in rows if row["status"] == "running"]
         failed = [row["run_id"] for row in rows if row["status"] == "failed"]
+        cancelled = [row["run_id"] for row in rows if row["status"] == "cancelled"]
+        timed_out = [row["run_id"] for row in rows if row["status"] == "timed_out"]
         return {
             "queued_count": len(queued),
             "running_count": len(running),
@@ -180,6 +205,22 @@ class SQLiteRunQueue:
             "running_run_ids": running,
             "failed_count": len(failed),
             "failed_run_ids": failed,
+            "cancelled_count": len(cancelled),
+            "cancelled_run_ids": cancelled,
+            "timed_out_count": len(timed_out),
+            "timed_out_run_ids": timed_out,
+            "jobs": [
+                {
+                    "run_id": row["run_id"],
+                    "status": row["status"],
+                    "attempts": int(row["attempts"]),
+                    "max_attempts": int(row["max_attempts"]),
+                    "locked_by": row["locked_by"],
+                    "heartbeat_at": row["heartbeat_at"],
+                    "last_error": row["last_error"],
+                }
+                for row in rows
+            ],
             "worker_backend": "sqlite",
             "worker_count": 0,
         }
@@ -196,7 +237,7 @@ class SQLiteRunQueue:
             try:
                 row = connection.execute(
                     """
-                    SELECT run_id
+                    SELECT run_id, status, attempts, max_attempts, locked_at, locked_by
                     FROM run_queue_jobs
                     WHERE
                         (status = 'queued' AND available_at <= ?)
@@ -215,20 +256,37 @@ class SQLiteRunQueue:
                     connection.commit()
                     return None
                 run_id = row["run_id"]
+                event_type = "queue_reclaimed" if row["status"] == "running" else "queue_claimed"
+                attempts = int(row["attempts"]) + 1
+                max_attempts = int(row["max_attempts"])
+                event_payload = {
+                    "previous_status": row["status"],
+                    "previous_locked_at": row["locked_at"],
+                    "previous_locked_by": row["locked_by"],
+                }
                 connection.execute(
                     """
                     UPDATE run_queue_jobs
                     SET status = 'running',
                         attempts = attempts + 1,
                         locked_at = ?,
+                        heartbeat_at = ?,
                         locked_by = ?,
                         updated_at = ?,
                         finished_at = NULL
                     WHERE run_id = ?
                     """,
-                    (now, worker_id, now, run_id),
+                    (now, now, worker_id, now, run_id),
                 )
                 connection.commit()
+                self._record_queue_event(
+                    str(run_id),
+                    event_type,
+                    worker_id=worker_id,
+                    attempts=attempts,
+                    max_attempts=max_attempts,
+                    payload=event_payload,
+                )
                 return str(run_id)
             except Exception:
                 connection.rollback()
@@ -236,7 +294,16 @@ class SQLiteRunQueue:
 
     def mark_succeeded(self, run_id: str, worker_id: str) -> None:
         now = _now_iso()
+        attempts: int | None = None
+        max_attempts: int | None = None
         with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT attempts, max_attempts FROM run_queue_jobs WHERE run_id = ?",
+                (run_id,),
+            ).fetchone()
+            if row is not None:
+                attempts = int(row["attempts"])
+                max_attempts = int(row["max_attempts"])
             connection.execute(
                 """
                 UPDATE run_queue_jobs
@@ -248,17 +315,35 @@ class SQLiteRunQueue:
                 """,
                 (worker_id, now, now, run_id),
             )
+        self._record_queue_event(
+            run_id,
+            "queue_succeeded",
+            worker_id=worker_id,
+            attempts=attempts,
+            max_attempts=max_attempts,
+        )
 
     def mark_failed(self, run_id: str, worker_id: str, error: str) -> bool:
         now = _now_iso()
+        attempts: int | None = None
+        max_attempts: int | None = None
         with self._lock, self._connect() as connection:
             row = connection.execute(
                 "SELECT attempts, max_attempts FROM run_queue_jobs WHERE run_id = ?",
                 (run_id,),
             ).fetchone()
             if row is None:
+                self._record_queue_event(
+                    run_id,
+                    "queue_failed",
+                    worker_id=worker_id,
+                    error=error,
+                    payload={"missing_queue_job": True},
+                )
                 return True
-            terminal = int(row["attempts"]) >= int(row["max_attempts"])
+            attempts = int(row["attempts"])
+            max_attempts = int(row["max_attempts"])
+            terminal = attempts >= max_attempts
             if terminal:
                 connection.execute(
                     """
@@ -272,22 +357,194 @@ class SQLiteRunQueue:
                     """,
                     (worker_id, error, now, now, run_id),
                 )
-                return True
+                event_type = "queue_failed"
+            else:
+                connection.execute(
+                    """
+                    UPDATE run_queue_jobs
+                    SET status = 'queued',
+                        available_at = ?,
+                        locked_at = NULL,
+                        heartbeat_at = NULL,
+                        locked_by = NULL,
+                        last_error = ?,
+                        updated_at = ?,
+                        finished_at = NULL
+                    WHERE run_id = ?
+                    """,
+                    (now, error, now, run_id),
+                )
+                event_type = "queue_requeued"
+        self._record_queue_event(
+            run_id,
+            event_type,
+            worker_id=worker_id,
+            attempts=attempts,
+            max_attempts=max_attempts,
+            error=error,
+        )
+        return terminal
+
+    def heartbeat(self, run_id: str, worker_id: str) -> bool:
+        clean_run_id = str(run_id or "").strip()
+        clean_worker_id = str(worker_id or "").strip() or "worker"
+        if not clean_run_id:
+            return False
+
+        now = _now_iso()
+        attempts: int | None = None
+        max_attempts: int | None = None
+        previous_heartbeat_at: str | None = None
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT status, attempts, max_attempts, locked_by, heartbeat_at
+                FROM run_queue_jobs
+                WHERE run_id = ?
+                """,
+                (clean_run_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            if row["status"] != "running" or row["locked_by"] != clean_worker_id:
+                return False
+            attempts = int(row["attempts"])
+            max_attempts = int(row["max_attempts"])
+            previous_heartbeat_at = row["heartbeat_at"]
             connection.execute(
                 """
                 UPDATE run_queue_jobs
-                SET status = 'queued',
-                    available_at = ?,
-                    locked_at = NULL,
-                    locked_by = NULL,
-                    last_error = ?,
-                    updated_at = ?,
-                    finished_at = NULL
+                SET heartbeat_at = ?,
+                    updated_at = ?
                 WHERE run_id = ?
                 """,
-                (now, error, now, run_id),
+                (now, now, clean_run_id),
             )
+
+        self._record_queue_event(
+            clean_run_id,
+            "queue_heartbeat",
+            worker_id=clean_worker_id,
+            attempts=attempts,
+            max_attempts=max_attempts,
+            payload={"previous_heartbeat_at": previous_heartbeat_at},
+        )
+        return True
+
+    def mark_stale_running_as_timed_out(
+        self,
+        *,
+        max_seconds: int,
+        worker_id: str | None = "watchdog",
+        reason: str | None = None,
+        limit: int = 100,
+    ) -> list[str]:
+        timeout_seconds = max(1, _safe_int(max_seconds, 1))
+        row_limit = max(1, _safe_int(limit, 100))
+        threshold = (datetime.now() - timedelta(seconds=timeout_seconds)).isoformat(
+            timespec="seconds"
+        )
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT run_id
+                FROM run_queue_jobs
+                WHERE status = 'running'
+                  AND COALESCE(heartbeat_at, locked_at) IS NOT NULL
+                  AND COALESCE(heartbeat_at, locked_at) < ?
+                ORDER BY COALESCE(heartbeat_at, locked_at) ASC, created_at ASC
+                LIMIT ?
+                """,
+                (threshold, row_limit),
+            ).fetchall()
+
+        timed_out: list[str] = []
+        timeout_reason = reason or f"watchdog heartbeat timeout after {timeout_seconds} seconds"
+        for row in rows:
+            run_id = str(row["run_id"])
+            if self.mark_timed_out(run_id, worker_id=worker_id, reason=timeout_reason):
+                timed_out.append(run_id)
+        return timed_out
+
+    def cancel(self, run_id: str, worker_id: str | None = None, reason: str = "run cancelled") -> bool:
+        return self._mark_terminal_control_state(
+            run_id,
+            status="cancelled",
+            event_type="queue_cancelled",
+            worker_id=worker_id,
+            reason=reason,
+        )
+
+    def mark_timed_out(
+        self,
+        run_id: str,
+        worker_id: str | None = None,
+        reason: str = "run timed out",
+    ) -> bool:
+        return self._mark_terminal_control_state(
+            run_id,
+            status="timed_out",
+            event_type="queue_timed_out",
+            worker_id=worker_id,
+            reason=reason,
+        )
+
+    def _mark_terminal_control_state(
+        self,
+        run_id: str,
+        *,
+        status: str,
+        event_type: str,
+        worker_id: str | None,
+        reason: str,
+    ) -> bool:
+        clean_run_id = str(run_id or "").strip()
+        if not clean_run_id:
             return False
+        operator = str(worker_id or "").strip() or None
+        now = _now_iso()
+        attempts: int | None = None
+        max_attempts: int | None = None
+        previous_status: str | None = None
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT status, attempts, max_attempts, locked_by
+                FROM run_queue_jobs
+                WHERE run_id = ?
+                """,
+                (clean_run_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            previous_status = str(row["status"])
+            if previous_status in {"succeeded", "failed", "cancelled", "timed_out"}:
+                return False
+            attempts = int(row["attempts"])
+            max_attempts = int(row["max_attempts"])
+            connection.execute(
+                """
+                UPDATE run_queue_jobs
+                SET status = ?,
+                    locked_by = COALESCE(?, locked_by),
+                    last_error = ?,
+                    updated_at = ?,
+                    finished_at = ?
+                WHERE run_id = ?
+                """,
+                (status, operator, reason, now, now, clean_run_id),
+            )
+
+        self._record_queue_event(
+            clean_run_id,
+            event_type,
+            worker_id=operator,
+            attempts=attempts,
+            max_attempts=max_attempts,
+            error=reason,
+            payload={"previous_status": previous_status},
+        )
+        return True
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path, timeout=30, isolation_level=None)
@@ -307,6 +564,7 @@ class SQLiteRunQueue:
                     max_attempts INTEGER NOT NULL DEFAULT 3,
                     available_at TEXT NOT NULL,
                     locked_at TEXT,
+                    heartbeat_at TEXT,
                     locked_by TEXT,
                     last_error TEXT,
                     created_at TEXT NOT NULL,
@@ -327,3 +585,37 @@ class SQLiteRunQueue:
                 ON run_queue_jobs(locked_at)
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(run_queue_jobs)").fetchall()
+            }
+            if "heartbeat_at" not in columns:
+                connection.execute("ALTER TABLE run_queue_jobs ADD COLUMN heartbeat_at TEXT")
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_run_queue_jobs_heartbeat_at
+                ON run_queue_jobs(heartbeat_at)
+                """
+            )
+
+    def _record_queue_event(
+        self,
+        run_id: str,
+        event_type: str,
+        *,
+        worker_id: str | None = None,
+        attempts: int | None = None,
+        max_attempts: int | None = None,
+        error: str | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> None:
+        record_queue_event_safely(
+            self.event_db_path,
+            run_id=run_id,
+            event_type=event_type,
+            worker_id=worker_id,
+            attempts=attempts,
+            max_attempts=max_attempts,
+            error=error,
+            payload=payload,
+        )

@@ -19,6 +19,7 @@ const elements = {
   currentStatus: $("#currentStatus"),
   summaryGrid: $("#summaryGrid"),
   runDiagnostics: $("#runDiagnostics"),
+  runTimeline: $("#runTimeline"),
   reviewActions: $("#reviewActions"),
   approveRunButton: $("#approveRunButton"),
   rejectRunButton: $("#rejectRunButton"),
@@ -70,6 +71,8 @@ async function apiPost(path, payload) {
 function statusClass(status) {
   if (status === "success") return "status-success";
   if (status === "failed") return "status-failed";
+  if (status === "timed_out") return "status-failed";
+  if (status === "cancelled") return "status-cancelled";
   if (status === "running" || status === "queued") return "status-running";
   return "";
 }
@@ -130,6 +133,40 @@ function renderCreatorNoteStatus(note) {
       <span>评 ${escapeHtml(metricsSnapshot.comments || 0)}</span>
     </div>
   `;
+}
+
+async function refreshCreatorNoteStatus(noteId, item) {
+  const cleanNoteId = String(noteId || "").trim();
+  if (!cleanNoteId) {
+    setNotice(elements.performanceNotice, "缺少平台笔记 ID", true);
+    return;
+  }
+
+  const refreshButton = item.querySelector("[data-refresh-note-status]");
+  const statusHost = item.querySelector("[data-note-status-id]");
+  if (refreshButton) refreshButton.disabled = true;
+  setNotice(elements.performanceNotice, `正在刷新平台状态：${cleanNoteId}`);
+
+  try {
+    const data = await apiGet(
+      `/creator/notes/status?creator_note_id=${encodeURIComponent(cleanNoteId)}&limit=50&wait=true&attempts=5&interval_seconds=2`
+    );
+    const status = data.creator_note_status || {};
+    const normalizedNote = {
+      ...status,
+      note_id: status.creator_note_id || cleanNoteId,
+      title: status.title || cleanNoteId,
+    };
+    if (statusHost) {
+      statusHost.innerHTML = renderCreatorNoteStatus(normalizedNote);
+    }
+    const attempts = status.attempts ? `，尝试 ${status.attempts} 次` : "";
+    setNotice(elements.performanceNotice, `平台状态：${status.status || "-"}${attempts}`);
+  } catch (error) {
+    setNotice(elements.performanceNotice, error.message, true);
+  } finally {
+    if (refreshButton) refreshButton.disabled = false;
+  }
 }
 
 function memoryMetaGrid(record) {
@@ -230,6 +267,186 @@ function renderRunDiagnostics(run) {
   }
 }
 
+function eventTypeLabel(eventType) {
+  const labels = {
+    queued: "进入队列",
+    running: "开始运行",
+    success: "运行成功",
+    failed: "运行失败",
+    cancelled: "已取消",
+    timed_out: "已超时",
+    queue_enqueued: "队列入队",
+    queue_claimed: "队列领取",
+    queue_reclaimed: "队列恢复领取",
+    queue_heartbeat: "队列心跳",
+    queue_requeued: "队列重试",
+    queue_succeeded: "队列成功",
+    queue_failed: "队列失败",
+    queue_cancelled: "队列取消",
+    queue_timed_out: "队列超时",
+    node_finished: "节点完成",
+    node_failed: "节点失败",
+  };
+  return labels[eventType] || eventType || "-";
+}
+
+function timelineEventTimeBucket(event) {
+  const date = new Date(event?.created_at || "");
+  if (Number.isNaN(date.getTime())) return Number.MAX_SAFE_INTEGER;
+  date.setMilliseconds(0);
+  return date.getTime();
+}
+
+function timelineEventRank(eventType) {
+  const ranks = {
+    queued: 10,
+    queue_enqueued: 20,
+    queue_claimed: 30,
+    queue_reclaimed: 30,
+    queue_heartbeat: 35,
+    running: 40,
+    node_finished: 50,
+    node_failed: 50,
+    queue_requeued: 60,
+    failed: 80,
+    success: 80,
+    cancelled: 80,
+    timed_out: 80,
+    queue_succeeded: 90,
+    queue_failed: 90,
+    queue_cancelled: 90,
+    queue_timed_out: 90,
+  };
+  return ranks[eventType] ?? 70;
+}
+
+function sortedTimelineEvents(events) {
+  return events
+    .map((event, index) => ({ event, index }))
+    .sort((left, right) => {
+      const timeDiff = timelineEventTimeBucket(left.event) - timelineEventTimeBucket(right.event);
+      if (timeDiff !== 0) return timeDiff;
+      const rankDiff =
+        timelineEventRank(left.event?.event_type) - timelineEventRank(right.event?.event_type);
+      if (rankDiff !== 0) return rankDiff;
+      return left.index - right.index;
+    })
+    .map((item) => item.event);
+}
+
+function renderTimelineItem(event) {
+  const payload = event.payload || {};
+  const details = [
+    event.node_name ? `节点 ${event.node_name}` : "",
+    event.duration_ms ? `耗时 ${event.duration_ms}ms` : "",
+    payload.worker_id ? `worker ${payload.worker_id}` : "",
+    payload.attempts != null && payload.max_attempts != null
+      ? `尝试 ${payload.attempts}/${payload.max_attempts}`
+      : "",
+    event.error ? `错误 ${event.error}` : "",
+  ].filter(Boolean);
+  return `
+    <div class="timeline-item ${statusClass(event.status)}">
+      <div>
+        <strong>${escapeHtml(eventTypeLabel(event.event_type))}</strong>
+        <span>${escapeHtml(compactTime(event.created_at))}</span>
+      </div>
+      <p>${escapeHtml(event.message || details.join(" / ") || "-")}</p>
+      ${details.length ? `<p class="muted">${escapeHtml(details.join(" / "))}</p>` : ""}
+    </div>
+  `;
+}
+
+function renderRunTimeline(businessRun) {
+  const events = sortedTimelineEvents(businessRun?.run_events || []);
+  if (!businessRun) {
+    elements.runTimeline.innerHTML = `
+      <div class="timeline-head">
+        <h3>事件时间线</h3>
+        <span class="mini-pill">未启用</span>
+      </div>
+      <p class="muted">需要 SQLite run store 和业务表开关。</p>
+    `;
+    return;
+  }
+  elements.runTimeline.innerHTML = `
+    <div class="timeline-head">
+      <h3>事件时间线</h3>
+      <span class="mini-pill">${escapeHtml(events.length)} 条</span>
+    </div>
+    <div class="timeline-list">
+      ${
+        events.length
+          ? events.map(renderTimelineItem).join("")
+          : `<div class="timeline-item"><p class="muted">暂无事件</p></div>`
+      }
+    </div>
+  `;
+}
+
+async function loadBusinessRunSnapshot(runId) {
+  if (!runId) {
+    renderRunTimeline(null);
+    return null;
+  }
+  try {
+    const data = await apiGet(`/business/runs/${encodeURIComponent(runId)}`);
+    renderRunTimeline(data.business_run || null);
+    return data.business_run || null;
+  } catch (error) {
+    renderRunTimeline(null);
+    return null;
+  }
+}
+
+function queueJobStatusLabel(status) {
+  if (status === "queued") return "等待";
+  if (status === "running") return "运行";
+  if (status === "failed") return "失败";
+  if (status === "cancelled") return "已取消";
+  if (status === "timed_out") return "已超时";
+  return status || "-";
+}
+
+function renderQueueJob(job) {
+  const runId = job.run_id || "";
+  const terminal = ["failed", "cancelled", "timed_out"].includes(job.status);
+  return `
+    <div class="queue-job ${statusClass(job.status)}" data-queue-run-id="${escapeHtml(runId)}">
+      <div class="queue-job-main">
+        <strong>${escapeHtml(runId || "-")}</strong>
+        <span class="mini-pill ${statusClass(job.status)}">${escapeHtml(queueJobStatusLabel(job.status))}</span>
+      </div>
+      <p class="muted">尝试 ${escapeHtml(job.attempts ?? 0)}/${escapeHtml(job.max_attempts ?? "-")} · worker ${escapeHtml(job.locked_by || "-")}</p>
+      ${job.last_error ? `<p class="path-line">${escapeHtml(job.last_error)}</p>` : ""}
+      <div class="queue-job-actions">
+        <button class="ghost-button memory-action-button" type="button" data-cancel-run="${escapeHtml(runId)}" ${terminal ? "disabled" : ""}>取消</button>
+        <button class="ghost-button memory-action-button" type="button" data-timeout-run="${escapeHtml(runId)}" ${terminal ? "disabled" : ""}>标记超时</button>
+      </div>
+    </div>
+  `;
+}
+
+async function cancelRunFromQueue(runId) {
+  const payload = { reason: "工作台取消任务" };
+  const data = await apiPost(`/runs/${encodeURIComponent(runId)}/cancel`, payload);
+  if (state.currentRunId === runId) {
+    renderRun(data.run);
+    await loadBusinessRunSnapshot(runId);
+  }
+  await refreshShell();
+}
+
+async function timeoutRunFromQueue(runId) {
+  const payload = { reason: "工作台标记任务超时" };
+  const data = await apiPost(`/runs/${encodeURIComponent(runId)}/timeout`, payload);
+  if (state.currentRunId === runId) {
+    renderRun(data.run);
+    await loadBusinessRunSnapshot(runId);
+  }
+  await refreshShell();
+}
+
 function renderQueue(queue) {
   elements.queueStrip.innerHTML = `
     <span>等待 ${queue.queued_count ?? 0}</span>
@@ -237,12 +454,38 @@ function renderQueue(queue) {
   `;
   const queued = queue.queued_run_ids || [];
   const running = queue.running_run_ids || [];
+  const jobs = queue.jobs || [];
   elements.queueDetail.innerHTML = `
     <p><strong>运行中</strong></p>
     <p class="path-line">${running.length ? running.map(escapeHtml).join("<br>") : "无"}</p>
     <p><strong>等待中</strong></p>
     <p class="path-line">${queued.length ? queued.map(escapeHtml).join("<br>") : "无"}</p>
+    <div class="queue-job-list">
+      ${jobs.length ? jobs.map(renderQueueJob).join("") : ""}
+    </div>
   `;
+  elements.queueDetail.querySelectorAll("[data-cancel-run]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await cancelRunFromQueue(button.dataset.cancelRun || "");
+      } catch (error) {
+        setNotice(elements.formNotice, error.message, true);
+        button.disabled = false;
+      }
+    });
+  });
+  elements.queueDetail.querySelectorAll("[data-timeout-run]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await timeoutRunFromQueue(button.dataset.timeoutRun || "");
+      } catch (error) {
+        setNotice(elements.formNotice, error.message, true);
+        button.disabled = false;
+      }
+    });
+  });
 }
 
 function runtimeLabel(runtime) {
@@ -293,7 +536,16 @@ function renderPlatformStatus(platformStatus) {
 
 function compactTime(value) {
   if (!value) return "-";
-  return String(value).replace("T", " ");
+  const text = String(value);
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) {
+    return text.replace("T", " ");
+  }
+  const pad = (part) => String(part).padStart(2, "0");
+  return [
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`,
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`,
+  ].join(" ");
 }
 
 function renderRunList(runs) {
@@ -491,6 +743,7 @@ async function loadRun(runId, keepPolling = false) {
   const data = await apiGet(`/runs/${encodeURIComponent(runId)}`);
   state.currentRunId = runId;
   renderRun(data.run);
+  await loadBusinessRunSnapshot(runId);
   if (keepPolling && ["queued", "running"].includes(data.run.status)) {
     startRunPolling(runId);
   }
@@ -574,20 +827,27 @@ function renderCreatorNotes(notes) {
     .map((note) => {
       const noteId = note.note_id || "";
       return `
-        <button class="creator-note-item" type="button" data-note-id="${escapeHtml(noteId)}">
+        <div class="creator-note-item" data-note-id="${escapeHtml(noteId)}">
           <strong>${escapeHtml(note.title || noteId || "未命名作品")}</strong>
           <span>${escapeHtml(noteId)}</span>
           <span class="muted">${escapeHtml(note.visibility || "-")}</span>
-          ${renderCreatorNoteStatus(note)}
-        </button>
+          <div data-note-status-id="${escapeHtml(noteId)}">${renderCreatorNoteStatus(note)}</div>
+          <div class="creator-note-actions">
+            <button class="memory-action-button" type="button" data-select-note>选择</button>
+            <button class="memory-action-button ghost-button" type="button" data-refresh-note-status>刷新状态</button>
+          </div>
+        </div>
       `;
     })
     .join("");
 
   elements.creatorNotesList.querySelectorAll(".creator-note-item").forEach((item) => {
-    item.addEventListener("click", () => {
+    item.querySelector("[data-select-note]")?.addEventListener("click", () => {
       elements.performanceForm.elements.creator_note_id.value = item.dataset.noteId || "";
       setNotice(elements.performanceNotice, `已选择平台笔记：${item.dataset.noteId || "-"}`);
+    });
+    item.querySelector("[data-refresh-note-status]")?.addEventListener("click", () => {
+      refreshCreatorNoteStatus(item.dataset.noteId || "", item);
     });
   });
 }

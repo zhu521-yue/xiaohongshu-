@@ -75,6 +75,7 @@ def _check_local_profile() -> list[CheckResult]:
         _check_writable_dir("log_dir", settings.log_dir),
         CheckResult("PASS", f"run store backend: {settings.run_store_backend}"),
         CheckResult("PASS", f"run queue backend: {settings.run_queue_backend}"),
+        _business_table_check(settings),
     ]
     if settings.api_token:
         results.append(CheckResult("PASS", "api token set: auth enabled"))
@@ -85,7 +86,7 @@ def _check_local_profile() -> list[CheckResult]:
 
 def _check_sqlite_worker_profile() -> list[CheckResult]:
     settings = load_settings()
-    results = [_check_writable_dir("log_dir", settings.log_dir)]
+    results = [_check_writable_dir("log_dir", settings.log_dir), _business_table_check(settings)]
 
     expected = [
         ("run store backend", settings.run_store_backend, "sqlite"),
@@ -97,6 +98,18 @@ def _check_sqlite_worker_profile() -> list[CheckResult]:
             results.append(CheckResult("PASS", f"{label}: {actual}"))
         else:
             results.append(CheckResult("FAIL", f"{label} must be {expected_value}, got {actual}"))
+
+    if settings.queue_heartbeat_timeout_seconds > 0:
+        results.append(
+            CheckResult(
+                "PASS",
+                f"queue heartbeat timeout seconds: {settings.queue_heartbeat_timeout_seconds}",
+            )
+        )
+    else:
+        results.append(
+            CheckResult("FAIL", "queue heartbeat timeout seconds must be positive")
+        )
 
     results.extend(
         [
@@ -114,6 +127,16 @@ def _check_sqlite_worker_profile() -> list[CheckResult]:
         results.append(CheckResult("PASS", "run DB path and queue DB path match"))
 
     return results
+
+
+def _business_table_check(settings) -> CheckResult:
+    if settings.db_schema != "foundation":
+        return CheckResult("WARN", f"business table schema is {settings.db_schema}; foundation is expected")
+    if not settings.business_tables_enabled:
+        return CheckResult("PASS", "business table writes disabled")
+    if settings.run_store_backend != "sqlite":
+        return CheckResult("WARN", "business table writes require sqlite run store")
+    return CheckResult("PASS", "business table writes enabled for sqlite run store")
 
 
 def _check_production_lite_profile() -> list[CheckResult]:

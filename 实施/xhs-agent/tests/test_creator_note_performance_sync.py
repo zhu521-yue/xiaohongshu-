@@ -98,6 +98,40 @@ def test_get_creator_note_status_returns_adapter_result(isolated_api, monkeypatc
     assert result == {"creator_note_status": expected}
 
 
+def test_get_creator_note_status_can_wait_for_platform_sync(isolated_api, monkeypatch) -> None:
+    expected = {
+        "ok": True,
+        "status": "synced",
+        "creator_note_id": "mock_note_001",
+        "attempts": 2,
+        "waited_seconds": 1.0,
+    }
+
+    def fake_wait_status(
+        creator_note_id: str,
+        limit: int = 50,
+        attempts: int = 5,
+        interval_seconds: float = 2.0,
+    ) -> dict:
+        assert creator_note_id == "mock_note_001"
+        assert limit == 30
+        assert attempts == 4
+        assert interval_seconds == 0.5
+        return expected
+
+    monkeypatch.setattr(api.creator_platform, "wait_for_published_note_status", fake_wait_status)
+
+    result = api.get_creator_note_status(
+        "mock_note_001",
+        limit=30,
+        wait=True,
+        attempts=4,
+        interval_seconds=0.5,
+    )
+
+    assert result == {"creator_note_status": expected}
+
+
 def test_record_performance_can_match_creator_note_id(isolated_api) -> None:
     saved = operation_store.upsert_record_from_state(_operation_state())
 

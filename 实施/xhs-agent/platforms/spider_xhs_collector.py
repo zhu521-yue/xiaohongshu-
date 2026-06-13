@@ -163,6 +163,183 @@ def _note_interaction_score(note: Dict[str, Any]) -> int:
     )
 
 
+def _compact_text(value: str) -> str:
+    return re.sub(r"\s+", "", str(value or "").lower())
+
+
+def _topic_terms(topic: str) -> list[str]:
+    compact = _compact_text(topic)
+    terms: set[str] = set()
+    if len(compact) >= 2:
+        terms.add(compact)
+    for size in (4, 3, 2):
+        if len(compact) < size:
+            continue
+        for index in range(0, len(compact) - size + 1):
+            terms.add(compact[index : index + size])
+    return sorted(terms, key=lambda item: (-len(item), item))
+
+
+def _topic_relevance_score(topic: str, note: Dict[str, Any]) -> tuple[int, list[str]]:
+    text = _compact_text(
+        " ".join(
+            [
+                str(note.get("title") or ""),
+                str(note.get("desc") or ""),
+                " ".join(str(tag) for tag in note.get("tags") or []),
+            ]
+        )
+    )
+    if not text:
+        return 0, []
+
+    score = 0
+    matched_terms: list[str] = []
+    compact_topic = _compact_text(topic)
+    if compact_topic and compact_topic in text:
+        score += 60
+        matched_terms.append(compact_topic)
+
+    for term in _topic_terms(topic):
+        if term == compact_topic or term not in text:
+            continue
+        if len(term) >= 4:
+            score += 18
+        elif len(term) == 3:
+            score += 12
+        else:
+            score += 6
+        matched_terms.append(term)
+        if score >= 90:
+            break
+
+    return min(score, 90), matched_terms[:8]
+
+
+def _comment_score(comments: int) -> int:
+    if comments >= 1000:
+        return 35
+    if comments >= 100:
+        return 25
+    if comments >= 10:
+        return 15
+    if comments >= 1:
+        return 8
+    return 0
+
+
+def _interaction_bucket_score(interaction_score: int) -> int:
+    if interaction_score >= 10000:
+        return 30
+    if interaction_score >= 1000:
+        return 24
+    if interaction_score >= 100:
+        return 16
+    if interaction_score >= 10:
+        return 8
+    return 0
+
+
+def _score_candidate(topic: str, note: Dict[str, Any], original_index: int) -> Dict[str, Any]:
+    title = str(note.get("title") or "").strip()
+    comments = _count_to_int(note.get("comments"))
+    interaction = _note_interaction_score(note)
+    relevance_score, matched_terms = _topic_relevance_score(topic, note)
+    comment_score = _comment_score(comments)
+    interaction_score = _interaction_bucket_score(interaction)
+    quality_score = 0
+    penalties = 0
+    reasons: list[str] = []
+    penalty_reasons: list[str] = []
+
+    if title and title != "无标题":
+        quality_score += 10
+    else:
+        penalties += 35
+        penalty_reasons.append("标题缺失或无效")
+
+    if note.get("note_url"):
+        quality_score += 5
+    else:
+        penalties += 80
+        penalty_reasons.append("缺少笔记链接")
+
+    if relevance_score > 0:
+        reasons.append(f"主题相关：{', '.join(matched_terms[:4])}")
+    else:
+        penalties += 20
+        penalty_reasons.append("主题相关度低")
+
+    if comments > 0:
+        reasons.append(f"评论数 {comments}")
+    else:
+        penalties += 12
+        penalty_reasons.append("评论数为 0")
+
+    if interaction > 0:
+        reasons.append(f"互动量 {interaction}")
+    else:
+        penalties += 8
+        penalty_reasons.append("互动量为 0")
+
+    score_breakdown = {
+        "topic_relevance": relevance_score,
+        "comments": comment_score,
+        "interaction": interaction_score,
+        "quality": quality_score,
+        "penalty": penalties,
+    }
+    score = relevance_score + comment_score + interaction_score + quality_score - penalties
+
+    return {
+        "rank": 0,
+        "selected": False,
+        "original_index": original_index,
+        "title": title,
+        "note_url": str(note.get("note_url") or ""),
+        "comments": comments,
+        "likes": _count_to_int(note.get("likes")),
+        "collects": _count_to_int(note.get("collects")),
+        "shares": _count_to_int(note.get("shares")),
+        "score": score,
+        "score_breakdown": score_breakdown,
+        "reasons": reasons,
+        "penalties": penalty_reasons,
+    }
+
+
+def score_collection_candidates(
+    topic: str,
+    notes: List[Dict[str, Any]],
+    selected_limit: int = 5,
+) -> List[Dict[str, Any]]:
+    candidates = [
+        _score_candidate(topic, note, index)
+        for index, note in enumerate(notes)
+        if isinstance(note, dict)
+    ]
+    candidates.sort(key=lambda item: (-_safe_candidate_score(item), item["original_index"]))
+
+    selected_count = max(0, int(selected_limit or 0))
+    eligible_positions = [
+        position
+        for position, candidate in enumerate(candidates)
+        if _is_useful_note(notes[candidate["original_index"]])
+    ]
+    if not eligible_positions:
+        eligible_positions = list(range(len(candidates)))
+    selected_positions = set(eligible_positions[:selected_count])
+
+    for position, candidate in enumerate(candidates):
+        candidate["rank"] = position + 1
+        candidate["selected"] = position in selected_positions
+    return candidates
+
+
+def _safe_candidate_score(candidate: Dict[str, Any]) -> int:
+    return _count_to_int(candidate.get("score"))
+
+
 def _is_useful_note(note: Dict[str, Any]) -> bool:
     title = str(note.get("title") or "").strip()
     note_url = str(note.get("note_url") or "").strip()
@@ -518,13 +695,17 @@ def collect_topic_samples(topic: str, limit: int = 5) -> dict:
     api = _load_xhs_api()
 
     note_limit = min(limit, _env_int("XHS_NOTE_LIMIT", 3))
+    candidate_multiplier = max(1, _env_int("XHS_CANDIDATE_POOL_MULTIPLIER", 3))
+    default_candidate_limit = max(note_limit, min(20, note_limit * candidate_multiplier))
+    candidate_pool_limit = max(note_limit, _env_int("XHS_CANDIDATE_POOL_LIMIT", default_candidate_limit))
+    search_limit = max(note_limit, min(candidate_pool_limit, note_limit * candidate_multiplier))
     comments_per_note = _env_int("XHS_COMMENTS_PER_NOTE", 10)
     sort_type_choice = _env_int("XHS_SORT_TYPE", 2)
 
     with _vendor_working_directory():
         success, msg, notes = api.search_some_note(
             topic,
-            note_limit,
+            search_limit,
             cookies,
             sort_type_choice=sort_type_choice,
             note_type=0,
@@ -533,9 +714,19 @@ def collect_topic_samples(topic: str, limit: int = 5) -> dict:
         raise RuntimeError(f"Spider_XHS search failed: {msg}")
 
     deidentified_notes = [_deidentify_note(note) for note in notes]
-    raw_notes = [note for note in deidentified_notes if _is_useful_note(note)]
+    collection_candidates = score_collection_candidates(
+        topic,
+        deidentified_notes,
+        selected_limit=note_limit,
+    )
+    selected_indices = [
+        int(candidate.get("original_index"))
+        for candidate in collection_candidates
+        if candidate.get("selected") is True
+    ]
+    raw_notes = [deidentified_notes[index] for index in selected_indices]
     if not raw_notes:
-        raw_notes = deidentified_notes
+        raw_notes = deidentified_notes[:note_limit]
 
     raw_comments = []
     comment_fetch_errors = []
@@ -580,6 +771,7 @@ def collect_topic_samples(topic: str, limit: int = 5) -> dict:
         "raw_notes": raw_notes,
         "raw_comments": raw_comments,
         "comment_fetch_errors": comment_fetch_errors,
+        "collection_candidates": collection_candidates,
     }
 
 
@@ -594,6 +786,7 @@ def collect_topic_insights(topic: str, limit: int = 5) -> dict:
         "raw_comments": raw_comments,
         "cleaned_notes": clean_notes(raw_notes),
         "comment_fetch_errors": samples.get("comment_fetch_errors") or [],
+        "collection_candidates": samples.get("collection_candidates") or [],
         "top_subtopics": extract_subtopics(topic, raw_comments),
         "comment_insights": comment_insights,
         "pain_points": insights_to_pain_points(topic, comment_insights),

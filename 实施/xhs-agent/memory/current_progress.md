@@ -1257,3 +1257,917 @@
 - M25 平台护栏已经从底层检查推进到 API 和工作台可见。
 - 下一条主链任务建议做“发布状态轮询/等待”，因为真实私密发布后作品列表可能短暂 `not_found`，目前只查一次会造成误判。
 - 另一个后续主线是采集候选池评分，解决真实采集时误选低互动/低评论笔记的问题；但它更适合排在发布状态轮询之后。
+
+## 2026-06-12 项目竣工口径复盘与加速路线
+
+本轮讨论结论：之前只按“业务主链是否跑通”复盘是不完整的。项目竣工必须同时覆盖业务主链、数据库、部署、队列/worker、日志监控、安全、数据分析、GraphRAG 和阶段二能力。
+
+当前阶段判断：
+- 阶段一 MVP 主链已经基本跑通：真实采集、LangGraph、真实 LLM、人工审核、草稿保存、运营记忆、真实素材绑定、创作者平台私密发布、平台笔记 ID 同步、表现回填都已完成过验证。
+- 但系统还没有达到稳定生产化竣工：当前最大缺口已经从“能否闭环”转为“能否稳定、可观测、可部署、可恢复、可扩展地长期运行”。
+
+业务主链未完成：
+- 发布状态轮询/等待：私密发布后作品列表可能短暂 `not_found`，当前只查一次容易误判。
+- 采集候选池评分：不能只取搜索第一条，需要按主题相关度、评论数、点赞/收藏、近期性、评论质量综合评分。
+- 基础数据分析报告：每次 run 应说明为什么选这些笔记、评论质量如何、痛点可信度如何、适合什么内容结构。
+- 生图链路：工程代码已就绪，但外部图片通道返回 `503 No available compatible accounts`，不能算真实通过。
+- 公开发布、定时发布、视频发布仍未完成，目前只验证私密图文。
+- 人工审核还不是 LangGraph 原生 interrupt/resume，目前是 API 层续跑。
+- Cookie 过期提示和重取流程还需要更完整的产品化处理。
+
+数据库未完成：
+- 正式 schema 仍需补齐，建议至少包含：
+  - `runs`
+  - `run_events`
+  - `drafts`
+  - `creator_assets`
+  - `creator_notes`
+  - `operation_records`
+  - `performance_records`
+  - `collection_candidates`
+  - `raw_notes`
+  - `raw_comments`
+  - `analysis_reports`
+  - `audit_events`
+- JSON run store 需要迁移到 SQLite/PostgreSQL。
+- operation memory 需要从 JSON 迁移到数据库。
+- 图片素材元数据需要入库，不能只依赖文件目录。
+- 采集原始数据、清洗后数据、候选评分、评论质量评分需要分层保存。
+- 需要数据库迁移工具、索引、唯一约束、幂等键、备份恢复、归档策略。
+- Cookie、token、xsec_token、用户标识等敏感数据需要数据库和日志层脱敏。
+
+部署未完成：
+- 需要确定 API 服务部署方式：Docker、systemd、Windows 服务或其他方式。
+- API 与 worker 需要拆分，API 不应长期承担所有耗时任务。
+- 前端静态资源需要明确由 API 托管还是 Nginx/反向代理托管。
+- 需要 HTTPS、反向代理、健康检查和启动脚本。
+- 需要 `.env.local`、`.env.production`、`.env.example` 分层，并建立 secrets 管理方式。
+- 需要持久化目录规划：数据库、run 数据、图片素材、Markdown 草稿、日志、备份。
+- 需要重启恢复策略：服务重启后 queued/running 任务如何恢复或标记失败。
+- 需要部署文档：从空机器到跑通一条主链的步骤。
+- 需要权限边界：谁能提交任务、谁能审核、谁能触发发布。
+
+队列与 worker 未完成：
+- API/worker 进程拆分。
+- 队列持久化。
+- 任务超时、取消、失败记录。
+- 可控重试；发布类任务不能自动连续重试。
+- 并发限制。
+- 不同任务类型拆队列：采集、生成、发布、分析。
+- worker 心跳和卡死检测。
+
+日志和监控未完成：
+- 每个 run 的事件时间线。
+- 每个节点耗时。
+- LLM token 与成本统计。
+- 采集成功率、评论命中率、Cookie 失败率。
+- 发布成功率、状态同步延迟。
+- 错误聚合和查询入口。
+- 告警：Cookie 失效、发布失败、队列堆积、LLM 失败、数据库写入失败。
+
+数据分析与 GraphRAG 的顺序：
+- 数据分析不能等 GraphRAG 之后做，应该前置。
+- 推荐顺序：
+  1. 数据库基础表。
+  2. 采集候选池评分。
+  3. 基础数据分析报告。
+  4. 表现数据结构化沉淀。
+  5. GraphRAG。
+- GraphRAG 是增强层，不是数据分析的前置；否则会把未清洗、未评分、未结构化的数据沉淀进图谱，后续返工成本高。
+
+阶段二未完成：
+- 千帆。
+- 蒲公英。
+- 商品卖点匹配。
+- 软广生成节点。
+- 商业合规审核。
+- 70/30 内容比例。
+- 单周软广限制。
+- 不连发软广。
+- 达人匹配和邀约。
+
+加速路线建议：
+- 不要一条线慢慢磨，改成三条主线并行推进。
+- 主链稳定线，预计 2-4 天：
+  - 发布状态轮询。
+  - 采集候选池评分。
+  - 基础数据分析。
+- 工程化数据线，预计 4-7 天：
+  - SQLite schema。
+  - run store / operation memory 迁移。
+  - 事件表、素材表、表现表。
+- 部署可运行线，预计 3-6 天：
+  - API/worker 启动模板。
+  - 环境配置。
+  - 日志目录。
+  - 健康检查。
+  - 部署文档。
+
+工期判断：
+- 如果定义为阶段一“可稳定本地/单机部署运行”，还需要约 7-12 天。
+- 如果包含 GraphRAG，需要再加约 5-8 天。
+- 如果包含阶段二软广、达人、千帆、蒲公英和生产化部署，整体竣工更接近 4-6 周。
+
+当前优先级调整：
+- 下一步不应直接进入复杂 GraphRAG。
+- 优先做发布状态轮询和数据库基础表设计。
+- 数据库应在 GraphRAG 前完成，否则后续图谱和向量检索会建立在松散 JSON 与临时文件上，迁移成本过高。
+
+## 2026-06-12 工作区无用文件清理
+
+本轮按用户要求检查并清理当前项目目录中的无用文件。
+
+已删除：
+- `.codex/`：未跟踪目录，且 `config.toml` 中含明文小红书 Cookie，不适合留在项目工作区。
+- `.pytest_cache/`
+- 各模块 `__pycache__/`
+- 测试临时目录：`data/pytest_tmp*`
+- 浏览器 smoke 截图目录：`data/ui_checks/`
+- 旧 API server 输出日志：`data/api_server.err.log`、`data/api_server.out.log`
+- 临时 SQLite 文件：`data/self_test.sqlite3`、`data/tmp_integration_debug.sqlite3`
+
+明确保留：
+- `.env`：本地真实配置，不提交但运行需要。
+- `data/api_runs`、`data/collector_runs`、`data/creator_assets`、`data/generated_assets`、`data/manual_creator_assets`、`data/logs`：真实 run、素材、日志或调试数据。
+- `memory/operation_history.json` 及备份：运营记忆数据。
+- `output/markdown_exports`：生成草稿。
+- `.worktrees/`：Git 注册工作树 `m16a-sqlite-run-queue`，不能当缓存删除。
+- `vendor/Spider_XHS/node_modules/`：第三方依赖目录，未确认无用前保留。
+- `AGENTS.md`：当前协作指令文件，虽未跟踪但不视为无用文件。
+
+清理后验证：
+- `.codex=False`
+- `.pytest_cache=False`
+- `__pycache__=False`
+- `data/pytest_tmp=False`
+- `data/ui_checks=False`
+- `data/self_test.sqlite3=False`
+- `data/tmp_integration_debug.sqlite3=False`
+
+## 2026-06-12 GPT-image-2 生图链路恢复验证
+
+本轮目标是在用户更换正确图片服务 Key 后，收尾此前 GPT-image-2 生图链路无法通过的历史遗留问题。
+
+根因确认：
+- 之前的 Key 不具备 `gpt-image-2` 权限，服务端返回 `This token has no access to model gpt-image-2`。
+- 当前新 Key 可通过 `https://api.xrouter.dev/v1/models` 看到 `gpt-image-2`。
+- `OPENAI_BASE_URL` 必须配置为 `https://api.xrouter.dev/v1`，如果少 `/v1`，项目脚本会请求到 HTML 页面并报 `OpenAI image response is not valid JSON`。
+
+已完成：
+- 将本地 `.env` 的 `OPENAI_BASE_URL` 修正为 `https://api.xrouter.dev/v1`。
+- 使用现有成功 run `run_fda76a64a278` 执行生图绑定脚本。
+- 成功生成图片：`data/generated_assets/run_fda76a64a278/20260612_162936_openai_cover.png`。
+- 成功绑定到 creator assets：`data/creator_assets/run_fda76a64a278/01_20260612_162936_openai_cover.png`。
+- run summary 中 `creator_images_count=1`。
+- 视觉检查确认生成图不是空白/损坏图，内容为“小红书选题避坑指南”风格封面。
+
+验证结果：
+- 生图脚本返回 `ok=true`、`model=gpt-image-2`、`provider_mode=openai_images`、`bound=true`。
+- 生成图片与绑定图片文件大小一致，均为 `2388510` bytes。
+- 相关回归通过：`12 passed`。
+
+当前限制：
+- 本轮只验证“生图 -> 保存 -> 绑定 run”，没有触发真实 creator 私密发布。
+- `.env` 是本地忽略文件，Key 与 base URL 修正不会进入 Git。
+
+下一步建议：
+- 如需继续完整主链，可基于已绑定图片的 `run_fda76a64a278` 执行一次人工确认后的 creator 私密发布验证。
+- 若暂不做真实写入，回到主线优先任务：发布状态轮询/等待。
+
+## 2026-06-12 M26 发布状态轮询/等待
+
+本轮目标是沿“发布状态”主线一次性推进一批稳定性任务，解决真实 creator 私密发布后作品列表可能短暂 `not_found`，从而导致状态同步误判的问题。
+
+已完成：
+- 新增 `platforms.creator.wait_for_published_note_status()`。
+- 等待函数复用现有只读 `get_published_note_status()`，只查询作品列表，不触发发布、公开、修改或删除。
+- 仅当状态为 `not_found` 时按配置等待并重查；状态为 `synced` 立即返回，状态为 `unavailable` 立即停止。
+- 轮询结果会返回 `attempts` 和 `waited_seconds`，便于前端和诊断区解释等待过程。
+- `GET /creator/notes/status` 支持查询参数：
+  - `wait=true`
+  - `attempts`
+  - `interval_seconds`
+  - `limit`
+- `app.api.get_creator_note_status()` 支持普通单次查询和等待查询两种路径。
+- 工作台作品列表新增单条作品的“刷新状态”按钮。
+- “刷新状态”调用只读等待接口：`/creator/notes/status?...&wait=true&attempts=5&interval_seconds=2`。
+- 刷新后只更新当前作品卡片的状态摘要和表现录入区提示，不自动录入表现，也不触发真实写入。
+
+验证结果：
+- TDD RED：新增 6 个聚焦测试在旧代码下失败，失败点集中在等待函数缺失、API 参数未透传、前端刷新入口缺失。
+- TDD GREEN：聚焦测试通过，`6 passed`。
+- 相关回归通过：`37 passed`。
+- JS 语法检查通过：`node --check app\static\app.js`。
+- Python 编译通过：`compileall platforms\creator.py app\api.py`。
+- 浏览器 smoke：
+  - desktop：`ok=true`，`console_errors=[]`。
+  - mobile：`ok=true`，`console_errors=[]`。
+- 全量测试通过：`149 passed`。
+
+当前限制：
+- 本轮是“按需刷新/等待”，不是后台自动定时轮询，也不写回运营记忆。
+- 真实 creator 私密发布后的状态轮询尚未用新发布笔记做真实端到端验证；当前验证覆盖本地单元、API、工作台和浏览器 smoke。
+- `wait=true` 会让该 HTTP 请求等待一段时间，默认工作台只在用户点击“刷新状态”时触发。
+
+下一步建议：
+- 可基于已恢复的生图素材链路和当前发布状态等待能力，做一次“已绑定图片 run -> 人工确认私密发布 -> 等待状态同步 -> 表现回填”的真实后半段验证。
+- 或继续进入采集候选池评分，为后续数据分析和 GraphRAG 入库打基础。
+
+## 2026-06-12 真实后半段闭环验证：生图素材 -> 私密发布 -> 状态等待 -> 表现回填
+
+本轮目标是按用户要求沿发布状态主线继续推进，基于已绑定 GPT-image-2 图片素材的 run，做一次真实 creator 私密发布、等待平台状态同步，并按真实 `creator_note_id` 完成表现回填。
+
+前置状态：
+- 8014 API 是旧代码启动，`/platform/status` 返回 404，不适合验证 M26 发布状态等待能力。
+- 新启动 8017 API，临时设置 `CREATOR_MODE=spider_xhs`。
+- 8017 `/platform/status` 通过：
+  - `collector_runtime.ok=true`
+  - `creator_runtime.ok=true`
+  - `creator_publish_guardrail.allowed=true`
+  - 当日 creator 成功计数从 `1/3` 开始。
+- 目标 run：`run_fda76a64a278`。
+- 目标 run 已绑定真实生成图：`creator_images_count=1`。
+
+执行结果：
+- 人工确认私密发布成功：
+  - `publish_status=success`
+  - `creator_publish_status=success`
+  - `creator_publish_mode=spider_xhs`
+  - `creator_note_id=6a2bce0b000000003502c564`
+  - `operation_record_id=op_3ad88ee563ba`
+- 使用 M26 等待接口查询状态：
+  - `GET /creator/notes/status?creator_note_id=6a2bce0b000000003502c564&limit=50&wait=true&attempts=6&interval_seconds=2`
+  - 返回 `status=synced`
+  - 标题：`小红书选题先别急着判断，这几个坑要避开`
+  - `visibility_label=仅自己可见`
+  - `attempts=6`
+  - `waited_seconds=10.0`
+  - 指标快照均为 0。
+- 表现回填成功：
+  - `record_id=op_3ad88ee563ba`
+  - `status=performance_recorded`
+  - `performance_score=0`
+  - `views/likes/collects/comments/follows` 均为 0。
+
+收口验证：
+- `GET /runs/run_fda76a64a278` 显示 `creator_publish_status=success`，同一个 `creator_note_id`。
+- `GET /creator/notes/status` 单次状态查询返回 `status=synced` 和 `visibility_label=仅自己可见`。
+- `GET /memory/records?limit=10` 可找到同一个 `creator_note_id`，记录状态为 `performance_recorded`。
+
+当前效果：
+- 已验证真实后半段主链可用：真实生成图片素材 -> 绑定 run -> 人工确认私密发布 -> 平台状态等待同步 -> 真实平台笔记 ID 表现回填。
+- M26 发布状态等待能力在真实平台同步延迟场景中有效；本次第 6 次查询才同步成功，说明等待机制确实避免了短暂 `not_found` 误判。
+
+当前限制：
+- 本次发布是私密图文，未做公开发布、定时发布或视频发布。
+- 表现指标为 0 是平台当前快照结果，不是回填链路失败。
+- 8017 API 是本轮验证用临时真实 creator 模式服务，用户验证完成后可手动停止该进程。
+
+下一步建议：
+- 进入采集候选池评分，解决真实采集时误选低互动或低评论笔记的问题。
+- 之后补基础数据分析报告，为数据库结构化沉淀和 GraphRAG 入库打基础。
+
+## 2026-06-12 采集候选池评分初版
+
+本轮目标是在发布状态主线完成真实后半段验证后，继续补齐采集质量上游能力：不再只依赖搜索结果前几条，而是先形成候选池，再按主题相关度、互动质量和评论质量综合排序，降低误选低互动/低评论笔记的概率。
+
+已完成：
+- `spider_xhs` 真实采集新增候选池评分，搜索阶段先按配置扩大候选池，再按评分选出进入后续评论分析的笔记。
+- 候选评分综合考虑主题命中、标题相关度、评论数、点赞/收藏等互动信号，并对低相关、无标题、低价值候选做惩罚。
+- 采集结果新增 `collection_candidates`，保存候选评分、排名、是否被选中以及评分摘要，便于后续解释“为什么选这些笔记”。
+- `XHSState`、insight 节点兜底、API insight payload 和 mock collector 已兼容 `collection_candidates`。
+- `scripts/check_collector.py --search` 增加候选池评分输出，同时修复 Windows GBK 控制台遇到 emoji 标题时的 `UnicodeEncodeError`，改为安全 JSON 输出。
+- `.env.example` 新增候选池配置：
+  - `XHS_CANDIDATE_POOL_MULTIPLIER=3`
+  - `XHS_CANDIDATE_POOL_LIMIT=20`
+- 新增测试覆盖候选评分排序、候选池返回字段、mock 兼容和脚本输出。
+
+真实搜索诊断：
+- 命令：`D:\Anaconda\envs\ContentShare\python.exe .\scripts\check_collector.py --search --topic "小红书新手选题方法" --limit 5`
+- 返回 `raw_notes=9`、`selected_notes=3`。
+- 候选第 1 为 `威风整理｜小红书新手21天起号手册`，评分 `164`，被选中。
+- 其它高分候选包括 `小红书的8种变现方式，你知道几个`、`9分钟讲清，小红书从0-1完整运营攻略！`。
+- emoji 标题会被转义输出，不再导致 GBK 控制台崩溃。
+
+验证结果：
+- 聚焦候选池测试通过：`tests/test_collector_candidate_scoring.py`。
+- 脚本输出测试通过：`tests/test_check_collector_output.py`。
+- 相关回归通过：候选池评分、评论噪声过滤、平台安全护栏。
+- Python 编译检查通过：`platforms/spider_xhs_collector.py`、`platforms/mock_collector.py`、`scripts/check_collector.py`、`app/api.py`、`app/state.py`、`nodes/insight_node.py`。
+- 全量测试通过：`153 passed`。
+
+当前效果：
+- 采集链路从“拿搜索结果前几条”升级为“候选池 -> 评分排序 -> 选择样本”。
+- API/run 结果里可以看到 `collection_candidates`，后续基础数据分析报告可以直接解释样本来源和置信度。
+- 真实采集诊断脚本可以直接查看候选评分、入选笔记和被淘汰候选，方便人工判断采集质量。
+
+当前限制：
+- 评分仍是规则初版，不是语义 embedding 或 LLM 评审。
+- 评论质量评分目前主要依赖现有噪声过滤与评论命中情况，后续还需要更细的“真实问题/反对意见/使用场景”质量分。
+- 候选池结果仍依赖小红书搜索接口和 Cookie 状态；Cookie 失效时仍需要走现有自检与错误诊断。
+
+下一步建议：
+- 进入基础数据分析报告，让每次 run 能说明样本为什么被选中、评论质量如何、痛点可信度如何、适合什么内容结构。
+- 或继续细化评论质量评分，为后续数据库结构化沉淀和 GraphRAG 入库做更干净的数据层。
+
+## 2026-06-12 基础数据分析报告初版
+
+本轮目标是在采集候选池评分初版之后，继续补齐主线的“可解释数据分析”能力：让每次 run 不只返回候选、评论和痛点，还能直接说明样本为什么被选中、评论质量如何、痛点可信度如何，以及适合什么内容结构。
+
+已完成：
+- 新增 `platforms.analysis_report.build_analysis_report()`，使用确定性规则生成 `analysis_report`，不调用 LLM、不触发网络请求、不写平台。
+- 报告包含：
+  - `sample_selection`：候选数量、入选数量、最高分、入选标题、选择说明。
+  - `comment_quality`：评论数、洞察数、痛点数、证据数、质量等级和原因。
+  - `pain_point_confidence`：0-100 分、`high/medium/low` 等级和原因。
+  - `content_structure_hint`：建议内容结构与原因。
+  - `risks`：候选少、评论少、证据不足、评论抓取失败等风险。
+  - `summary`：一句话总览。
+- `nodes/insight_node.py` 在采集成功和采集异常兜底两条路径都会返回 `analysis_report`。
+- `app/state.py` 和 `app/api.py` 已透传 `analysis_report`，run/API 的 `insights.analysis_report` 可直接查看。
+- `scripts/check_collector.py` 已输出同一套 `analysis_report`，真实采集诊断可以直接观察样本质量和风险。
+- 新增设计规格与实施计划：
+  - `docs/superpowers/specs/2026-06-12-basic-analysis-report-design.md`
+  - `docs/superpowers/plans/2026-06-12-basic-analysis-report.md`
+- 新增测试：
+  - `tests/test_analysis_report.py`
+  - `tests/test_analysis_report_integration.py`
+  - 扩展 `tests/test_check_collector_output.py`
+
+验证结果：
+- TDD RED：
+  - 核心测试先因 `platforms.analysis_report` 缺失失败。
+  - 集成测试先因节点/API 未透传 `analysis_report` 失败。
+  - 脚本测试先因 `build_collection_diagnostic_payload` 缺失失败。
+- 聚焦回归通过：`12 passed`。
+- Python 编译检查通过：`platforms/analysis_report.py`、`nodes/insight_node.py`、`app/api.py`、`app/state.py`、`scripts/check_collector.py`。
+- 全量测试通过：`161 passed`。
+
+当前效果：
+- 每次采集 run 可以在 `insights.analysis_report` 里看到基础分析报告。
+- `check_collector.py --search` 现在会打印 `analysis_report`，如果加 `--comments`，报告会同时结合评论洞察与痛点证据。
+- 这一步为后续数据库 `analysis_reports` 表和 GraphRAG 入库质量打了稳定的结构基础。
+
+当前限制：
+- 报告仍是规则初版，不是 LLM/embedding 语义评审。
+- 内容结构建议只是分析提示，不覆盖现有 strategy 节点的最终内容类型决策。
+- 评论质量评分还需要继续细化“真实问题、反对意见、使用场景、引流/水军惩罚”等维度。
+
+下一步建议：
+- 进入数据库基础表设计，把 `runs`、`collection_candidates`、`analysis_reports`、`raw_notes`、`raw_comments` 等结构化落库。
+- 或继续做评论质量评分细化，让 `analysis_report` 的可信度更接近真实运营判断。
+
+## 2026-06-12 数据库基础业务表 schema 初始化
+
+本轮目标是在既有 `SQLiteRunStore`、`SQLiteRunQueue`、`SQLiteOperationMemoryBackend` 兼容后端之上，补齐第一轮基础业务表 schema。按用户确认，本轮只做当前可预见的主链基础表，后续如果业务需要其它表再追加，不做过度设计。
+
+已完成：
+- 新增 `app/database_schema.py`，提供 `initialize_foundation_schema(db_path)`。
+- 新增 foundation 业务表：
+  - `run_events`
+  - `raw_notes`
+  - `collection_candidates`
+  - `raw_comments`
+  - `analysis_reports`
+  - `drafts`
+  - `creator_assets`
+  - `creator_notes`
+  - `performance_records`
+  - `audit_events`
+- 新增对应关键索引，覆盖 run 查询、topic 查询、候选排序、分析报告质量、素材/平台笔记/表现快照和审计动作。
+- 初始化函数幂等，重复执行不会报错。
+- 已验证 foundation schema 能和现有 `runs`、`run_queue_jobs`、`operation_records` 共存在同一 SQLite 数据库，不破坏已有 run store、queue、operation memory 行为。
+- `.env.example` 新增配置说明：
+  - `XHS_AGENT_DB_SCHEMA=foundation`
+  - `XHS_AGENT_BUSINESS_TABLES_ENABLED=false`
+- 新增设计规格与实施计划：
+  - `docs/superpowers/specs/2026-06-12-foundation-database-schema-design.md`
+  - `docs/superpowers/plans/2026-06-12-foundation-database-schema.md`
+- 新增测试：
+  - `tests/test_foundation_database_schema.py`
+
+验证结果：
+- TDD RED：`tests/test_foundation_database_schema.py` 初始因 `app.database_schema` 缺失失败。
+- TDD GREEN：foundation schema 测试通过。
+- SQLite 兼容聚焦回归通过：`22 passed`。
+- Python 编译检查通过：`app/database_schema.py`。
+- 全量测试通过：`164 passed`。
+
+当前效果：
+- 项目现在有统一的基础业务表 schema 初始化入口。
+- 第一轮只建表和索引，不改变当前默认 JSON 行为，不改变 API 响应结构，不迁移历史数据。
+- 后续可以在同一数据库内逐步旁路写入采集候选、原始笔记、评论、分析报告、草稿、素材、平台笔记、表现和审计事件。
+
+当前限制：
+- 当前还没有把 run state 自动同步到这些业务表。
+- 当前还没有迁移历史 `data/api_runs/*.json` 或 `memory/operation_history.json`。
+- `XHS_AGENT_BUSINESS_TABLES_ENABLED=false` 仍表示业务表写入默认不开启，下一轮需要单独实现写入器。
+
+下一步建议：
+- 实现 `app/business_store.py`，先旁路写入核心四张表：`raw_notes`、`collection_candidates`、`raw_comments`、`analysis_reports`。
+- 新增手动补偿脚本 `scripts/sync_run_to_business_tables.py`，用于把已有 run 同步到业务表。
+
+## 2026-06-12 业务表核心快照旁路写入初版
+
+本轮目标是在 foundation schema 已经落地之后，继续推进数据库主线的第二步：先把现有 run state 中最核心的采集与分析数据同步到结构化业务表，但不改变当前 API/JSON 默认行为。
+
+已完成：
+- 新增 `app/business_store.py`，提供显式同步入口 `sync_run_business_tables(db_path, run_record)`。
+- 同步函数会自动调用 `initialize_foundation_schema(db_path)`，确保目标数据库已有 foundation 业务表。
+- 初版旁路写入核心四张表：
+  - `raw_notes`
+  - `collection_candidates`
+  - `raw_comments`
+  - `analysis_reports`
+- 写入使用稳定 hash ID 和 SQLite upsert，重复同步同一个 run 不会产生重复行。
+- `collection_candidates.note_row_id` 会优先通过 `original_index`、笔记 ID、URL 或标题关联到 `raw_notes`。
+- `raw_comments.note_row_id` 会通过来源笔记 ID、URL 或 `source_note_title` 尽量关联到 `raw_notes`。
+- JSON 兜底字段会递归过滤敏感字段，避免 Cookie、token、api key、authorization、xsec_token、用户昵称、头像、用户 ID、评论 ID 等进入业务表 JSON。
+- URL 中的敏感查询参数也会过滤，降低 `xsec_token` 随 `note_url` 落库的风险。
+- 新增实施计划：
+  - `docs/superpowers/plans/2026-06-12-business-table-snapshot-writer.md`
+- 新增测试：
+  - `tests/test_business_store.py`
+
+验证结果：
+- TDD RED：`tests/test_business_store.py` 初始因 `app.business_store` 缺失失败。
+- 聚焦回归通过：`tests/test_business_store.py tests/test_foundation_database_schema.py`，共 `6 passed`。
+- Python 编译检查通过：`app/business_store.py app/database_schema.py`。
+- 全量回归通过：`167 passed`。
+
+当前效果：
+- 现在可以把一个已有 run record 显式同步到 SQLite foundation 业务表。
+- 采集笔记、候选池评分、评论样本和分析报告已经具备结构化沉淀入口。
+- 现有 API 响应、run JSON、operation memory 和发布链路仍保持原行为，不会因为本轮改动自动写业务表。
+
+当前限制：
+- 当前还没有把同步函数挂到 API/worker 成功保存流程。
+- 当前还没有手动补偿脚本同步历史 `data/api_runs/*.json`。
+- 当前只写核心四张表，`drafts`、`creator_assets`、`creator_notes`、`performance_records`、`audit_events` 仍待后续逐步接入。
+- `XHS_AGENT_BUSINESS_TABLES_ENABLED=false` 仍表示默认不自动旁路写入；下一步需要在配置开启时调用同步函数。
+
+下一步建议：
+- 把 `sync_run_business_tables()` 接到 run 成功保存流程后面，并受 `XHS_AGENT_BUSINESS_TABLES_ENABLED` 控制。
+- 新增手动补偿脚本 `scripts/sync_run_to_business_tables.py`，用于把已有 run 同步到业务表。
+- 之后扩展草稿、素材、平台笔记、表现和审计表的旁路写入。
+
+## 2026-06-12 业务表自动同步与历史补偿脚本
+
+本轮目标是在核心四表显式同步函数已经完成后，继续推进数据库主线：让成功 run 可以在配置开启时自动旁路写入业务表，并提供历史 run 的手动补偿脚本。
+
+已完成：
+- `app.config.Settings` 新增：
+  - `db_schema`
+  - `business_tables_enabled`
+- `XHS_AGENT_DB_SCHEMA` 默认读取为 `foundation`。
+- `XHS_AGENT_BUSINESS_TABLES_ENABLED` 默认 `false`，只有设置为 true/on/yes/1 时才启用自动写入。
+- `app.api._save_run()` 增加自动同步 hook：
+  - 只在 `business_tables_enabled=true` 时工作。
+  - 只处理 `status=success` 的 run。
+  - 只在 run store 是 `SQLiteRunStore` 时写业务表。
+  - queued/running/failed 和 JSON run store 都不会自动写业务表。
+- 自动同步成功后，会在 run summary 写入：
+  - `business_table_sync_status=success`
+  - `business_table_sync_counts`
+  - `business_table_sync_error=None`
+- 自动同步失败不会阻断 run 保存，会在 run summary 写入：
+  - `business_table_sync_status=failed`
+  - `business_table_sync_error`
+  - 错误文本会复用敏感信息脱敏逻辑。
+- 新增 `scripts/sync_run_to_business_tables.py`：
+  - 支持 `--run-id` 同步单个 run。
+  - 支持 `--limit` 同步最近 N 个 run。
+  - 支持 `--dry-run` 只输出将同步/跳过的结果，不写业务表。
+  - 输出 JSON summary，包含 `synced`、`skipped`、`errors`、`dry_run`。
+- `scripts/check_runtime_config.py` 新增业务表配置检查：
+  - 默认显示业务表写入关闭。
+  - SQLite run store + enabled 时为 PASS。
+  - JSON run store + enabled 时为 WARN。
+- 新增实施计划：
+  - `docs/superpowers/plans/2026-06-12-business-table-auto-sync.md`
+- 新增测试：
+  - `tests/test_api_business_table_sync.py`
+  - `tests/test_sync_run_to_business_tables_script.py`
+- 扩展测试：
+  - `tests/test_m17a_config.py`
+  - `tests/test_runtime_config_check.py`
+
+验证结果：
+- TDD RED：补偿脚本测试初始因 `scripts.sync_run_to_business_tables` 缺失失败。
+- 配置/API/脚本/运行时检查聚焦测试通过：`16 passed`。
+- 数据库相关回归通过：`34 passed`。
+- Python 编译检查通过：`app/api.py`、`app/config.py`、`app/business_store.py`、`app/database_schema.py`、`scripts/sync_run_to_business_tables.py`、`scripts/check_runtime_config.py`。
+- 全量回归通过：`175 passed`。
+
+当前效果：
+- 只要使用 SQLite run store，并设置 `XHS_AGENT_BUSINESS_TABLES_ENABLED=true`，成功 run 保存后会自动把采集笔记、候选池、评论和分析报告同步到业务表。
+- 现有默认配置仍不自动写业务表，避免影响当前 JSON/本地开发路径。
+- 已有历史 run 可以用补偿脚本手动同步，不需要重新跑采集/生成链路。
+
+当前限制：
+- 自动同步当前只覆盖四张核心表：`raw_notes`、`collection_candidates`、`raw_comments`、`analysis_reports`。
+- `drafts`、`creator_assets`、`creator_notes`、`performance_records`、`audit_events` 仍未接入旁路写入。
+- 补偿脚本当前读取配置中的 run store；如果历史 run 分散在多个目录或多个 DB，需要分批指定环境或后续增加目录参数。
+
+下一步建议：
+- 扩展业务表写入到 `drafts`、`creator_assets`、`creator_notes`、`performance_records`、`audit_events`。
+- 给工作台/API 增加只读查询入口，方便直接验证业务表是否同步成功。
+- 后续再考虑把部分分析查询从 run JSON 切到业务表。
+
+## 2026-06-12 业务表剩余快照旁路写入
+
+本轮目标是在核心四表自动同步和历史补偿脚本完成后，继续推进数据库主线：把同一个成功 run 中可确定的草稿、素材、平台笔记、表现快照和审计事件同步到 foundation 业务表，仍不改变当前 API/JSON 默认行为。
+
+已完成：
+- `app.business_store.sync_run_business_tables()` 从核心四表扩展为 9 张业务表 counts：
+  - `raw_notes`
+  - `collection_candidates`
+  - `raw_comments`
+  - `analysis_reports`
+  - `drafts`
+  - `creator_assets`
+  - `creator_notes`
+  - `performance_records`
+  - `audit_events`
+- 新增 `drafts` 写入：
+  - 从 run `state` / `content` 读取图文或视频草稿字段。
+  - 写入标题、正文、封面文案、图文页规划、图片 prompt、视频脚本、标签、评论引导、Markdown 路径和 `operation_record_id`。
+  - 使用 `draft_<hash>` 稳定 ID，重复同步同一 run 不重复插入。
+- 新增 `creator_assets` 写入：
+  - 从 `state.creator_image_files` 读取已绑定图片路径。
+  - 写入文件名、mime、文件大小、绑定顺序、对应图片 prompt 和素材状态。
+  - 关联同 run 的 `draft_id`。
+- 新增 `creator_notes` 写入：
+  - 从 `state.creator_note_id` 和 `state.creator_publish_result` 读取平台笔记信息。
+  - 写入发布模式、发布状态、可见性、平台类型、指标快照和脱敏后的发布响应 JSON。
+- 新增 `performance_records` 写入：
+  - 当 run state 中存在 `performance_data` 时写入曝光、点赞、收藏、评论、关注和表现分。
+  - 关联 `operation_record_id`、`creator_note_id` 和 `run_id`。
+- 新增 `audit_events` 写入：
+  - 当前记录三类可追踪事件：`human_review`、`creator_publish`、`operation_memory_write`。
+  - 审计事件使用稳定 hash ID，重复同步保持幂等。
+- 继续复用现有敏感字段脱敏逻辑，避免 `token`、`cookie`、`authorization`、`xsec_token`、用户身份字段等进入 JSON 兜底字段。
+- 新增实施计划：
+  - `docs/superpowers/plans/2026-06-12-business-table-extended-writer.md`
+- 扩展测试：
+  - `tests/test_business_store.py`
+  - `tests/test_api_business_table_sync.py`
+  - `tests/test_sync_run_to_business_tables_script.py`
+
+验证结果：
+- TDD RED：新增业务表测试先因 `summary["drafts"]` 缺失、`drafts` 表无行而失败。
+- 聚焦业务表回归通过：`12 passed`。
+- Python 编译检查通过：`compileall app tests`。
+- 全量回归通过：`177 passed`。
+
+当前效果：
+- SQLite run store 且 `XHS_AGENT_BUSINESS_TABLES_ENABLED=true` 时，成功 run 保存后会自动旁路同步 9 张业务表。
+- 历史补偿脚本同步成功 run 时，也会写入可从 run record 还原出的 9 张业务表快照。
+- 业务表写入继续保持旁路性质，不影响现有 run JSON、API 响应、运营记忆和发布链路。
+
+当前限制：
+- `performance_records` 当前只从 run state 中已有的 `performance_data` 写入；通过 `/performance` 更新到运营记忆后的历史表现记录，还没有自动反向同步到业务表。
+- `audit_events` 是快照级审计，不是完整节点事件时间线；`run_events` 仍未接入真实节点耗时和事件流。
+- 业务表只读查询入口还没做，验证仍主要依赖 SQLite 表检查和补偿脚本输出。
+- 还没有把分析查询从 run JSON 切换到业务表，也没有进入 GraphRAG 入库。
+
+下一步建议：
+- 给工作台/API 增加只读查询入口，方便直接查看业务表同步结果。
+- 或先补 `run_events` 节点时间线，把队列、节点耗时、失败诊断和审计事件串起来。
+- 后续再评估把分析查询从 run JSON 切到业务表，并为 GraphRAG 入库准备查询层。
+
+## 2026-06-12 业务表只读查询 API
+
+本轮目标是在 9 张 foundation 业务表旁路写入完成后，继续补齐数据库主线的验证入口：按 `run_id` 从 SQLite 业务表直接读取结构化快照，方便确认自动同步和历史补偿是否真实落库。本轮不做前端工作台展示，不把现有 `/runs/{run_id}` 切换到业务表。
+
+已完成：
+- 新增 `app/business_queries.py`：
+  - 提供 `get_business_run_snapshot(db_path, run_id)`。
+  - 自动初始化 foundation schema，保证空库查询也能返回稳定结构。
+  - 按 `run_id` 查询 9 张业务表：
+    - `raw_notes`
+    - `collection_candidates`
+    - `raw_comments`
+    - `analysis_reports`
+    - `drafts`
+    - `creator_assets`
+    - `creator_notes`
+    - `performance_records`
+    - `audit_events`
+  - 返回每张表的紧凑列表和 `counts` 汇总。
+  - 对 JSON 字段做安全解析，例如 `reasons_json` -> `reasons`、`payload_json` -> `payload`。
+- `app.api.get_business_run_snapshot(run_id)` 新增 API 层入口：
+  - 只允许 SQLite run store。
+  - JSON run store 下返回明确错误：业务表查询需要 SQLite run store。
+- HTTP 新增只读路由：
+  - `GET /business/runs/{run_id}`
+  - 返回 `{"ok": true, "business_run": ...}`。
+- 新增实施计划：
+  - `docs/superpowers/plans/2026-06-12-business-table-read-api.md`
+- 新增/扩展测试：
+  - `tests/test_business_queries.py`
+  - `tests/test_api_business_table_sync.py`
+  - `tests/test_api_platform_status.py`
+
+验证结果：
+- TDD RED：新增测试先因 `app.business_queries` 模块缺失失败。
+- 聚焦 API/查询测试通过：`12 passed`。
+- 数据库相关回归通过：`25 passed`。
+- Python 编译检查通过：`compileall app tests`。
+- 全量回归通过：`182 passed`。
+
+当前效果：
+- 配置 SQLite run store 后，可以通过 `/business/runs/{run_id}` 直接查看该 run 的业务表同步快照。
+- 不存在的 run 会返回空 counts 和空列表，便于排查“未同步”与“同步为空”的状态。
+- JSON run store 路径保持原行为，不额外模拟业务表查询。
+
+当前限制：
+- 本轮只做 API/函数入口，没有做工作台页面展示。
+- 返回的是快照级紧凑数据，不包含所有 raw JSON 明细。
+- 仍未接入 `run_events` 节点时间线。
+- `/performance` 写入运营记忆后的表现记录仍未自动反向同步到 `performance_records`。
+
+下一步建议：
+- 给工作台增加一个只读“业务表快照”查看入口，直接调用 `/business/runs/{run_id}`。
+- 或继续补 `run_events` 节点时间线，为队列、节点耗时、失败诊断和后续监控打基础。
+
+## 2026-06-12 run_events 节点事件时间线
+
+本轮目标是在 foundation 业务表和只读查询 API 已经落地后，继续补齐数据库主线里的可观测性基础：把 run 生命周期事件和 local graph 节点耗时写入 `run_events`，并让 `/business/runs/{run_id}` 能直接返回这些事件。
+
+已完成：
+- 新增 `app/run_events.py`：
+  - 提供 `record_run_event(db_path, ...)` 统一写入入口。
+  - 自动初始化 foundation schema。
+  - 写入 `queued`、`running`、`success`、`failed`、`node_finished`、`node_failed` 等事件。
+  - 事件 ID 使用 run、事件类型、节点名和事件时间生成稳定 hash，同一事件时间重复写入会 upsert。
+  - `payload_json` 使用结构化 JSON 存储，时间精度保留到 microseconds。
+- `app.api._save_run()` 接入 run 生命周期事件：
+  - SQLite run store、`XHS_AGENT_BUSINESS_TABLES_ENABLED=true`、`XHS_AGENT_DB_SCHEMA=foundation` 时记录生命周期。
+  - 事件写入失败只记录 warning，不阻断 run 保存。
+- `app.api._run_workflow()` 统一封装 workflow 调用：
+  - local engine 会把 `run_id` 和 SQLite DB 路径传给 `run_local_graph()`。
+  - langgraph engine 当前只保留 API 生命周期事件，不做节点级事件。
+- `app.graph.run_local_graph()` 支持可选 `run_id` 和 `event_db_path`：
+  - 每个本地节点通过 `_run_node()` 包装。
+  - 成功节点记录 `node_finished`、节点名、开始/结束时间、耗时和更新字段。
+  - 异常节点记录 `node_failed`、节点名、耗时和错误文本，然后继续抛出原异常。
+  - 节点名显式传入，不依赖函数 `__name__`，避免测试 monkeypatch 或 lambda 破坏可观测性。
+- `app.business_queries.get_business_run_snapshot()` 已把 `run_events` 纳入业务快照：
+  - `/business/runs/{run_id}` 返回 `run_events` 列表。
+  - `counts.run_events` 同步返回事件数量。
+- 新增实施计划：
+  - `docs/superpowers/plans/2026-06-12-run-events-timeline.md`
+- 新增/扩展测试：
+  - `tests/test_run_events.py`
+  - `tests/test_graph_run_events.py`
+  - `tests/test_business_queries.py`
+  - `tests/test_api_business_table_sync.py`
+  - `tests/test_api_platform_status.py`
+
+验证结果：
+- 聚焦事件/API 回归通过：`18 passed`。
+- Python 编译检查通过：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app tests`。
+- 全量回归通过：`188 passed`。
+
+当前效果：
+- SQLite run store 且业务表开关启用时，run 从排队、运行到成功/失败会形成基础生命周期时间线。
+- local graph 能沉淀节点级耗时，后续可用于失败诊断、慢节点定位和监控统计。
+- 业务表只读 API 已能把 `run_events` 和其它业务表快照放在同一个 run 视图里返回。
+
+当前限制：
+- 节点级事件当前只覆盖 local graph；langgraph 路径暂只有 API 生命周期事件。
+- `run_events` 仍是基础时间线，不包含 LLM token、采集成功率、Cookie 状态、发布状态同步延迟等聚合监控指标。
+- 当前没有工作台页面展示事件时间线，仍通过 `/business/runs/{run_id}` 或 SQLite 查询验证。
+- `/performance` 写入运营记忆后的表现记录仍未自动反向同步到 `performance_records`。
+
+下一步建议：
+- 给工作台增加只读“业务表快照/事件时间线”面板，直接展示 `/business/runs/{run_id}` 的 `run_events`。
+- 后续补队列持久化恢复、任务超时/取消/重试事件，把 `run_events` 用作监控和失败诊断基础。
+- 继续评估 `/performance` 到 `performance_records` 的反向同步，完善表现链路闭环。
+
+## 2026-06-12 SQLite 队列事件可观测性
+
+本轮目标是在数据库基础主线阶段性收口后，转入队列/worker 工程化主线：把 SQLite 队列关键状态变化接入 `run_events`，让任务排队、领取、stale 恢复、重试、成功和终态失败可以和 run 生命周期、local graph 节点耗时放在同一条时间线里诊断。
+
+已完成：
+- 新增 `app/queue_events.py`：
+  - 提供 `record_queue_event()`，把队列语义转换为 `record_run_event()`。
+  - 提供 `record_queue_event_safely()`，事件写入失败只记录 warning，不阻断队列状态变化。
+  - 统一队列事件 payload：`worker_id`、`attempts`、`max_attempts`、前置锁信息和错误文本。
+- `app.run_queue.SQLiteRunQueue` 新增可选 `event_db_path`：
+  - 默认不记录事件，保持直接使用队列类的旧行为。
+  - 开启后记录 `queue_enqueued`。
+  - worker 正常领取 queued job 时记录 `queue_claimed`。
+  - stale running job 被重新领取时记录 `queue_reclaimed`。
+  - job 失败但未达到最大尝试次数时记录 `queue_requeued`。
+  - job 成功时记录 `queue_succeeded`。
+  - job 达到最大尝试次数或队列记录缺失时记录 `queue_failed`。
+- `SQLiteRunQueue.status()` 增加 `jobs` 明细：
+  - 返回 active/failed job 的 `run_id`、`status`、`attempts`、`max_attempts`、`locked_by`、`last_error`。
+  - 现有 `queued_count`、`running_count`、`failed_count` 和 ID 列表保持不变。
+- `app.api._run_queue_service()` 接入事件 DB：
+  - 只有 SQLite run store、foundation schema、`XHS_AGENT_BUSINESS_TABLES_ENABLED=true` 同时满足时，才给 SQLite queue 传入 run DB 路径。
+  - 如果 queue DB 和 run DB 分离，事件仍写入 run DB，便于 `/business/runs/{run_id}` 统一查询。
+- `scripts.run_worker.run_once()` 不需要改接口；它调用 `mark_succeeded()` / `mark_failed()` 时会自然触发队列事件。
+- `.env.example` 补充说明：队列事件复用现有业务表开关，不新增独立开关。
+- 新增实施计划：
+  - `docs/superpowers/plans/2026-06-12-sqlite-queue-events-observability.md`
+- 新增/扩展测试：
+  - `tests/test_queue_events.py`
+  - `tests/test_sqlite_run_queue.py`
+  - `tests/test_api_run_queue_selection.py`
+  - `tests/test_run_worker.py`
+
+验证结果：
+- TDD RED：新增队列事件测试先因 `app.queue_events` 缺失失败。
+- 队列/worker 聚焦回归通过：`20 passed`。
+- 队列 + 事件 + 业务查询聚焦回归通过：`32 passed`。
+- Python 编译检查通过：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app scripts tests`。
+- 全量回归通过：`194 passed`。
+
+当前效果：
+- SQLite queue 的关键状态变化现在能进入 `run_events`，和 run 生命周期、local graph 节点事件放在同一个业务快照里查看。
+- `/queue` 状态结果在 SQLite backend 下包含更细的 job 明细，便于排查卡住、重试和终态失败任务。
+- worker 进程不需要了解事件表；它只调用队列状态机，事件由队列模块旁路记录。
+
+当前限制：
+- 本轮只做 SQLite queue 的可观测性，不做任务取消、业务超时中断、优先级队列或多队列拆分。
+- local in-process queue 仍只返回基础状态，不记录队列事件。
+- 真实 creator 发布类副作用任务不会因为本轮改动自动重试；本轮只记录队列重试状态。
+- 工作台尚未展示 queue events，需要后续通过业务快照/事件时间线面板呈现。
+
+下一步建议：
+- 给工作台增加只读“事件时间线/队列诊断”面板，展示 run 生命周期、queue events 和 graph 节点耗时。
+- 或继续做队列工程化增强：任务取消、超时标记、running 任务恢复策略和 worker 心跳。
+- 后续再补 `/performance` 到 `performance_records` 的反向同步。
+
+## 2026-06-12 工作台事件时间线与任务控制
+
+本轮目标是把上一轮留下的两个工程化方向一起推进：工作台只读“事件时间线/队列诊断”面板，以及任务取消、超时标记和恢复保护策略。实现仍基于现有 SQLite queue 和 `run_events`，不引入新队列技术。
+
+已完成：
+- `SQLiteRunQueue` 新增显式控制方法：
+  - `cancel(run_id, worker_id=None, reason=...)`
+  - `mark_timed_out(run_id, worker_id=None, reason=...)`
+- 队列状态新增终态：
+  - `cancelled`
+  - `timed_out`
+- 队列事件新增：
+  - `queue_cancelled`
+  - `queue_timed_out`
+- `/queue` 在 SQLite backend 下新增诊断字段：
+  - `cancelled_count`
+  - `cancelled_run_ids`
+  - `timed_out_count`
+  - `timed_out_run_ids`
+  - `jobs` 明细继续包含 attempts、max_attempts、locked_by、last_error。
+- API 新增任务控制函数：
+  - `cancel_run(run_id, payload)`
+  - `timeout_run(run_id, payload)`
+- HTTP 新增显式控制路由：
+  - `POST /runs/{run_id}/cancel`
+  - `POST /runs/{run_id}/timeout`
+- run lifecycle 事件扩展支持：
+  - `cancelled`
+  - `timed_out`
+- `_finish_run()` 增加保护：如果 worker 后续结束时发现 run 已被标记为 `cancelled` 或 `timed_out`，不会再覆盖成 success/failed。
+- 工作台任务结果区新增只读 `runTimeline`：
+  - 调用 `/business/runs/{run_id}`。
+  - 展示 run lifecycle、queue events 和 local graph node events。
+  - SQLite/业务表未启用时显示“未启用”提示，不影响现有 `/runs/{run_id}`。
+- 工作台队列区新增 job 诊断：
+  - 展示 job 状态、尝试次数、worker、last_error。
+  - 对非终态 job 提供“取消”和“标记超时”按钮。
+- 新增实施计划：
+  - `docs/superpowers/plans/2026-06-12-workbench-timeline-and-run-control.md`
+- 新增/扩展测试：
+  - `tests/test_api_run_control.py`
+  - `tests/test_workbench_event_timeline_static.py`
+  - `tests/test_sqlite_run_queue.py`
+
+验证结果：
+- TDD RED：新增测试先因 `SQLiteRunQueue.cancel()`、`mark_timed_out()`、`api.cancel_run()`、`api.timeout_run()`、前端 `runTimeline` 缺失而失败。
+- 队列控制聚焦回归通过：`12 passed`。
+- API 控制 + 队列聚焦回归通过：`15 passed`。
+- 前端静态和诊断回归通过：`8 passed`。
+- 综合聚焦回归通过：`35 passed`。
+- `node --check app/static/app.js` 通过。
+
+当前效果：
+- 对 queued/running 任务可以通过 API 或工作台显式取消。
+- 对 queued/running 任务可以通过 API 或工作台显式标记超时。
+- 取消/超时会同时写 run record、SQLite queue job 和 `run_events`。
+- 工作台现在能直接看到所选 run 的结构化事件时间线。
+- worker 不需要知道前端控制逻辑；它完成时会尊重已取消/已超时 run，不再覆盖终态。
+
+当前限制：
+- 本轮不强杀正在运行的 Python 线程。
+- 本轮不撤销或中断已经发出的真实 creator 平台请求。
+- 本轮超时是显式标记，不是后台 watchdog 自动扫描。
+- local in-process queue 没有 queue job 表，因此工作台队列诊断明细主要服务 SQLite backend。
+
+下一步建议：
+- 增加 worker 心跳和 watchdog：自动发现长时间 running 且无心跳的任务，按策略标记 stale 或 timed_out。
+- 增加更完整的运行配置检查，提示 SQLite queue + run store + business table events 的组合状态。
+- 继续补 `/performance` 到 `performance_records` 的反向同步，完善表现链路数据沉淀。
+
+## 2026-06-12 工作台事件时间线排序与时区显示修复
+本轮目标是处理工作台浏览器反馈：“事件时间线是不是不太对”。排查后确认问题有两层：队列事件由 `run_events` 以 UTC `+00:00` 写入，run 生命周期事件使用本地时间字符串；`/business/runs/{run_id}` 原先按原始 `created_at` 文本排序，前端也直接展示原始时间，导致同一条时间线里既有 `15:19:48+00:00`，又有本地 `23:19:48`，顺序和观感都不对。
+
+已完成：
+- `app.business_queries` 对 `run_events` 增加读出归一排序：
+  - 带时区时间转换为本地时间。
+  - 按秒级时间桶排序。
+  - 同一秒内保留 SQLite `rowid` 写入顺序，避免旧数据因为生命周期事件只有秒级精度而错排。
+  - `_rowid` 仅用于内部排序，不暴露给 API 响应。
+- `app/static/app.js` 增强 `compactTime()`：
+  - 带时区 ISO 时间显示成本地 `YYYY-MM-DD HH:mm:ss`。
+  - 无法解析的旧字符串仍回退为原始文本替换 `T`，避免破坏未知格式。
+- `app/static/app.js` 增加前端时间线本地排序：
+  - 即使 8024 上的 Python API 进程尚未重启、仍返回旧顺序，工作台也会按时间桶和事件阶段重新排序。
+  - 当前浏览器验证顺序为：进入队列 -> 队列入队 -> 队列领取 -> 开始运行 -> 运行成功 -> 队列成功。
+- 扩展测试：
+  - `tests/test_business_queries.py` 覆盖 UTC 队列事件和本地生命周期事件混排时的快照排序。
+  - `tests/test_workbench_event_timeline_static.py` 覆盖前端本地时间显示和旧 API 顺序下的前端排序。
+
+验证结果：
+- TDD RED：新增两个定点测试先按预期失败。
+- 定点测试修复后通过。
+- 相关回归通过：`38 passed`。
+- JS 语法检查通过：`node --check app/static/app.js`。
+- 浏览器复查通过：当前 `http://127.0.0.1:8024/` 的 `run_46dc74c9c7b1` 时间线不再显示 `+00:00` 原文，顺序已修正。
+
+当前效果：
+- 工作台事件时间线现在对用户显示本地秒级时间，避免 UTC 原文造成“早 8 小时”的误解。
+- 历史 SQLite 数据无需迁移即可被读出和展示为合理顺序。
+- 后端 API 重启后会返回更合理的事件顺序；前端也能兼容尚未重启的旧 API 进程返回。
+
+当前限制：
+- 当前没有统一改造所有写入端的时间来源，系统内部仍可能存在 UTC aware 和本地 naive 字符串混用；本轮通过读出归一和展示归一解决用户可见问题。
+- 生命周期事件秒级精度会导致同一秒内只能依赖写入顺序和事件阶段排序，后续可考虑统一事件写入精度到 microseconds。
+
+下一步建议：
+- 继续主线时，优先做 worker 心跳 + watchdog 自动超时扫描。
+- 同时增强运行配置检查，提示 SQLite run store、queue、business tables 和 events 的组合是否完整。
+- 后续可统一事件写入时间规范，减少读出层兼容逻辑。
+
+## 2026-06-13 worker 心跳与 watchdog 自动超时扫描
+
+本轮目标是承接队列/worker 工程化主线，在现有 SQLite queue、`run_events` 和工作台事件时间线基础上，补齐 worker 心跳信号和显式 watchdog 扫描入口，让长时间 running 且心跳过期的任务可以自动标记为 `timed_out`。
+
+已完成：
+- 新增设计文档：
+  - `docs/superpowers/specs/2026-06-13-worker-heartbeat-watchdog-design.md`
+- 新增实施计划：
+  - `docs/superpowers/plans/2026-06-13-worker-heartbeat-watchdog.md`
+- `SQLiteRunQueue` 的 `run_queue_jobs` 增加 `heartbeat_at` 字段：
+  - 新库建表时直接包含字段。
+  - 旧库通过 `_init_db()` 幂等补列。
+  - `/queue` 的 SQLite job 明细会返回 `heartbeat_at`。
+- `claim_next()` 领取任务时会初始化 `heartbeat_at`。
+- 新增 `SQLiteRunQueue.heartbeat(run_id, worker_id)`：
+  - 只更新 `running` 且 `locked_by` 匹配的 job。
+  - 更新 `heartbeat_at` 和 `updated_at`。
+  - 写入 `queue_heartbeat` 事件。
+- 新增 `SQLiteRunQueue.mark_stale_running_as_timed_out(...)`：
+  - 通过 `heartbeat_at` 判断过期。
+  - 历史 running job 没有 heartbeat 时回退到 `locked_at`。
+  - 复用现有 `mark_timed_out()`，因此会写入 `queue_timed_out` 事件。
+- `scripts/run_worker.py` 更新：
+  - `run_once()` 领取任务后会对支持心跳的队列写一次 heartbeat。
+  - 新增 `run_watchdog_once()`。
+  - CLI 新增 `--watchdog-once`，用于显式执行一次 watchdog 扫描。
+- 配置新增：
+  - `XHS_AGENT_QUEUE_HEARTBEAT_TIMEOUT_SECONDS=1800`
+  - `Settings.queue_heartbeat_timeout_seconds`
+- `scripts/check_runtime_config.py --profile sqlite-worker` 会检查 heartbeat timeout 是否为正数。
+- 工作台事件时间线新增 `queue_heartbeat` 标签和排序：
+  - 显示为“队列心跳”。
+  - 排序在“队列领取”和“开始运行”之间。
+
+验证结果：
+- TDD RED：新增测试先因缺少 `heartbeat_at`、`heartbeat()`、watchdog 方法、worker 入口、配置检查和前端事件映射而失败。
+- 定点 RED->GREEN 通过：`8 passed`。
+- 相关聚焦回归通过：`39 passed`。
+- `node --check app/static/app.js` 通过。
+- Python 编译检查通过：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app scripts tests`。
+- 全量回归通过：`214 passed`。
+
+当前效果：
+- SQLite worker 领取任务后会留下可查询的心跳时间。
+- watchdog 可以显式扫描并自动把心跳过期的 running job 标记为 `timed_out`。
+- 队列心跳和自动超时可以进入现有 `run_events` 时间线，并在工作台中以中文事件展示。
+- 配置检查可以发现 heartbeat timeout 被禁用或配置异常。
+
+当前限制：
+- 本轮仍不强杀正在运行的 Python 线程。
+- 本轮不撤销或中断已经发出的真实 creator 平台请求。
+- 当前 worker 只在领取任务后写一次心跳；长任务执行期间的周期心跳线程尚未实现。
+- watchdog 是显式 `--watchdog-once` 扫描入口，还不是常驻后台调度。
+
+下一步建议：
+- 增加 worker 周期心跳线程，让长时间执行的采集/LLM/发布任务能持续刷新 `heartbeat_at`。
+- 增加常驻 watchdog 或启动模板中的定期调用策略。
+- 继续补运行配置组合检查，提示 SQLite run store、queue、business tables、events 和 watchdog 是否完整启用。
+- 后续再补 `/performance` 到 `performance_records` 的反向同步。

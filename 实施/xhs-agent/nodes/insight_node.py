@@ -1,4 +1,5 @@
 from app.state import XHSState
+from platforms.analysis_report import build_analysis_report
 from platforms.collector import collect_topic_insights
 from platforms.spider_xhs_collector import save_collection_result
 
@@ -15,6 +16,7 @@ def analyze_topic_and_pain_points(state: XHSState) -> dict:
     except Exception as exc:
         result = {
             "raw_notes": [],
+            "collection_candidates": [],
             "raw_comments": [],
             "cleaned_notes": [],
             "top_subtopics": [{"name": f"{topic}基础知识", "score": 0.5}],
@@ -33,6 +35,16 @@ def analyze_topic_and_pain_points(state: XHSState) -> dict:
                 }
             ],
         }
+
+    result["analysis_report"] = build_analysis_report(
+        topic=topic,
+        collection_candidates=result.get("collection_candidates") or [],
+        raw_notes=result.get("raw_notes") or [],
+        raw_comments=result.get("raw_comments") or [],
+        comment_insights=result.get("comment_insights") or [],
+        pain_points=result.get("pain_points") or [],
+        comment_fetch_errors=result.get("comment_fetch_errors") or [],
+    )
 
     if state.get("save_collection"):
         path = save_collection_result(topic, result)

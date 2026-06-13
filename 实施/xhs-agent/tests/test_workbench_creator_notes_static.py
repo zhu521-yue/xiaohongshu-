@@ -30,3 +30,11 @@ def test_creator_notes_render_status_summary():
     assert "note.visibility_label" in APP_JS
     assert "metricsSnapshot.views" in APP_JS
     assert "平台状态" in APP_JS
+
+
+def test_creator_notes_can_refresh_single_note_status_with_wait():
+    assert "refreshCreatorNoteStatus" in APP_JS
+    assert "/creator/notes/status" in APP_JS
+    assert "wait=true" in APP_JS
+    assert "data-note-status-id" in APP_JS
+    assert "刷新状态" in APP_JS
