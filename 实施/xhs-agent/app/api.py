@@ -599,6 +599,7 @@ def _run_workflow(
         initial_state,
         run_id=run_id,
         checkpoint_db_path=RUNTIME_CHECKPOINT_DB_PATH,
+        event_db_path=_event_db_path_for_settings(load_settings()),
     )
     return result.state
 
@@ -1026,6 +1027,7 @@ def approve_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str,
             "creator_human_confirmed": _bool(payload.get("creator_human_confirmed"), default=False),
         },
         checkpoint_db_path=RUNTIME_CHECKPOINT_DB_PATH,
+        event_db_path=_event_db_path_for_settings(load_settings()),
     )
     reviewed = _save_reviewed_run(record, result.state, review_action="approved")
     LOGGER.info("run_approved run_id=%s", run_id)
@@ -1062,6 +1064,7 @@ def reject_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str, 
         run_id,
         {"action": "rejected", "feedback": feedback},
         checkpoint_db_path=RUNTIME_CHECKPOINT_DB_PATH,
+        event_db_path=_event_db_path_for_settings(load_settings()),
     )
     reviewed = _save_reviewed_run(record, result.state, review_action="rejected")
     LOGGER.info("run_rejected run_id=%s", run_id)

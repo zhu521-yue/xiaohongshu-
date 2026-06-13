@@ -39,11 +39,13 @@ def run_graph_thread(
     *,
     run_id: str,
     checkpoint_db_path: str | Path | None = None,
+    event_db_path: str | Path | None = None,
 ) -> LangGraphRunResult:
     return _invoke_graph(
         dict(initial_state, run_id=run_id, run_status="running"),
         run_id=run_id,
         checkpoint_db_path=checkpoint_db_path,
+        event_db_path=event_db_path,
     )
 
 
@@ -52,11 +54,13 @@ def resume_graph_thread(
     resume_value: dict[str, Any],
     *,
     checkpoint_db_path: str | Path | None = None,
+    event_db_path: str | Path | None = None,
 ) -> LangGraphRunResult:
     return _invoke_graph(
         Command(resume=resume_value),
         run_id=run_id,
         checkpoint_db_path=checkpoint_db_path,
+        event_db_path=event_db_path,
     )
 
 
@@ -65,11 +69,19 @@ def _invoke_graph(
     *,
     run_id: str,
     checkpoint_db_path: str | Path | None,
+    event_db_path: str | Path | None,
 ) -> LangGraphRunResult:
     config = graph_thread_config(run_id)
     checkpointer = SQLiteSnapshotSaver(checkpoint_db_path or default_checkpoint_db_path())
     app = build_langgraph(checkpointer=checkpointer)
-    result = app.invoke(payload, config)
+    result: dict[str, Any] = {}
+    for chunk in app.stream(payload, config, stream_mode="updates"):
+        _record_stream_chunk(chunk, run_id=run_id, event_db_path=event_db_path)
+        result = _merge_stream_chunk(result, chunk)
+    if "__interrupt__" in result:
+        result = dict(app.get_state(config).values, __interrupt__=result["__interrupt__"])
+    else:
+        result = dict(app.get_state(config).values)
     interrupted = "__interrupt__" in result
     interrupt_payload = _interrupt_payload(result, run_id=run_id) if interrupted else {}
     state = {key: value for key, value in dict(result).items() if key != "__interrupt__"}
@@ -100,3 +112,48 @@ def _interrupt_payload(result: dict[str, Any], *, run_id: str) -> dict[str, Any]
     payload = value if isinstance(value, dict) else {"value": value}
     payload.setdefault("run_id", run_id)
     return payload
+
+
+def _merge_stream_chunk(current: dict[str, Any], chunk: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(current)
+    for node_name, updates in chunk.items():
+        if node_name == "__interrupt__":
+            merged["__interrupt__"] = updates
+        elif isinstance(updates, dict):
+            merged.update(updates)
+    return merged
+
+
+def _record_stream_chunk(
+    chunk: dict[str, Any],
+    *,
+    run_id: str,
+    event_db_path: str | Path | None,
+) -> None:
+    if event_db_path is None:
+        return
+
+    from app.run_events import record_run_event
+
+    for node_name, updates in chunk.items():
+        if node_name == "__interrupt__":
+            record_run_event(
+                event_db_path,
+                run_id=run_id,
+                event_type="node_interrupted",
+                node_name="human_review",
+                status="waiting",
+            )
+            continue
+        record_run_event(
+            event_db_path,
+            run_id=run_id,
+            event_type="node_finished",
+            node_name=str(node_name),
+            status="success",
+            payload={
+                "updates": sorted(str(key) for key in (updates or {}).keys())
+                if isinstance(updates, dict)
+                else []
+            },
+        )
