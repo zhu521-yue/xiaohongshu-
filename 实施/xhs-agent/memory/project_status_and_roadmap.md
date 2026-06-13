@@ -1500,3 +1500,34 @@ Worker service
 - 当前调度器仍不负责进程守护、系统级定时、告警通知或统一编排。
 - 真实平台边界仍是只读作品列表指标同步，不触发发布、编辑、删除、公开或平台定时发布。
 - 下一步工程化建议是统一启动编排脚本，或转入 M5 GraphRAG 数据入库/查询设计。
+
+## 34. 2026-06-13 SQLite stack 统一启动编排脚本完成
+
+本次主线继续解决上一轮遗留工程化问题：把 API、SQLite worker、watchdog 和可选 performance scheduler 组合成一个统一启动入口。
+
+已完成：
+
+- 新增 `scripts/start_sqlite_stack.ps1`：
+  - 统一设置 SQLite run store、run queue、operation memory DB 路径。
+  - 统一设置 collector、creator、LLM、API token 和 heartbeat 配置。
+  - 默认启动 API、worker 和 watchdog loop。
+  - 使用 `Start-Process -WindowStyle Hidden -PassThru` 启动子进程并输出 PID。
+  - 支持 `-NoApi`、`-NoWorker`、`-NoWatchdog`。
+  - 支持 `-CheckOnly` 配置预检。
+  - 支持显式 `-StartScheduler`，通过 `-CreatorNoteId` / `-RunId` 传入只读指标同步目标。
+- 扩展启动模板测试：
+  - `tests/test_startup_templates.py` 覆盖统一脚本和 scheduler 参数。
+- 更新启动文档：
+  - `docs/m17b-startup-templates.md` 新增 SQLite Stack Mode。
+
+验证补充：
+
+- TDD RED：统一脚本缺失时启动模板测试先失败，`3 failed, 3 passed`。
+- RED->GREEN：`tests/test_startup_templates.py` -> `6 passed`。
+- `start_sqlite_stack.ps1 -CheckOnly` 通过，sqlite-worker profile 返回 0。
+
+路线图影响：
+
+- “统一启动编排脚本”从未完成调整为初版完成。
+- 当前仍不是系统级进程守护，不负责自动重启、停止全部子进程或告警通知。
+- 下一步工程化可补健康检查/停止脚本/日志查看脚本；主线可转入 M5 GraphRAG 数据入库和查询设计。

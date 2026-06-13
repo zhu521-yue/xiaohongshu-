@@ -72,6 +72,43 @@ XHS_AGENT_MEMORY_DB_PATH
 
 The templates set all three to the same `-DbPath`.
 
+## SQLite Stack Mode
+
+Use this when you want one command to launch the local API, SQLite worker, and watchdog loop with the same DB path. The script starts child processes with hidden windows and prints their PIDs.
+
+Check the shared configuration without starting long-running processes:
+
+```powershell
+.\scripts\start_sqlite_stack.ps1 -CheckOnly -Python $python -DbPath data/xhs_agent.sqlite3
+```
+
+Start API, worker, and watchdog:
+
+```powershell
+.\scripts\start_sqlite_stack.ps1 -Python $python -DbPath data/xhs_agent.sqlite3 -HostName 127.0.0.1 -Port 8010
+```
+
+Start only selected pieces:
+
+```powershell
+.\scripts\start_sqlite_stack.ps1 -Python $python -NoApi
+.\scripts\start_sqlite_stack.ps1 -Python $python -NoWorker -NoWatchdog
+```
+
+Start the read-only creator performance scheduler as part of the stack:
+
+```powershell
+.\scripts\start_sqlite_stack.ps1 `
+  -Python $python `
+  -DbPath data/xhs_agent.sqlite3 `
+  -StartScheduler `
+  -RunId run_877b49f35f98 `
+  -SchedulerIntervalSeconds 1800 `
+  -SchedulerMaxConsecutiveFailedRounds 3
+```
+
+The scheduler still only reads creator note status and metrics snapshots through the existing performance sync path. It does not trigger public publishing, editing, deletion, or platform scheduled publishing.
+
 ## Guarded API Mode
 
 Set a token when you want protected API endpoints to reject unauthenticated calls.

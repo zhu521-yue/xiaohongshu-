@@ -1,5 +1,43 @@
 # 当前工程进度
 
+## 2026-06-13 SQLite stack 统一启动编排脚本
+
+本轮目标是继续解决上一轮遗留的工程化问题：把 API、SQLite worker、watchdog 和平台指标 scheduler 的分散入口整合成一个统一启动脚本。该能力只做本地进程编排，不新增服务框架，不引入 Redis/Celery/systemd/Docker，也不扩大真实平台写入范围。
+
+已完成：
+- 新增 `scripts/start_sqlite_stack.ps1`：
+  - 统一设置 SQLite run store、run queue、operation memory 的 DB 路径。
+  - 统一设置 `COLLECTOR_MODE`、`CREATOR_MODE`、`LLM_MODEL_NAME`、API token 和 heartbeat 配置。
+  - 默认启动 API、worker 和 watchdog loop。
+  - 使用 `Start-Process -WindowStyle Hidden -PassThru` 启动子进程并输出 PID。
+  - 支持 `-NoApi`、`-NoWorker`、`-NoWatchdog` 精简启动组件。
+  - 支持 `-CheckOnly` 只运行 `check_runtime_config.py --profile sqlite-worker`。
+  - 支持显式 `-StartScheduler`，并通过 `-CreatorNoteId` / `-RunId` 传入只读平台指标同步目标。
+  - `-StartScheduler` 没有目标时会直接报错，避免误启动无目标轮询。
+- 扩展 `tests/test_startup_templates.py`：
+  - 覆盖统一脚本存在性、CheckOnly、Start-Process、隐藏窗口、API/worker/watchdog/scheduler 入口和调度器目标参数。
+- 更新 `docs/m17b-startup-templates.md`：
+  - 新增 SQLite Stack Mode 使用说明。
+  - 明确 scheduler 仍是只读表现同步，不触发公开发布、编辑、删除或平台定时发布。
+
+验证结果：
+- TDD RED：新增启动模板测试先因 `start_sqlite_stack.ps1` 缺失失败，`3 failed, 3 passed`。
+- RED->GREEN：`tests/test_startup_templates.py` -> `6 passed`。
+- `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start_sqlite_stack.ps1 -CheckOnly -Python D:\Anaconda\envs\ContentShare\python.exe` 通过，sqlite-worker profile 退出 0。
+
+当前效果：
+- 本地分进程运行从“多个分散脚本手动开多个终端”提升为“一条命令启动 API/worker/watchdog，可选 scheduler”。
+- 后续长期巡检可以把 scheduler 挂进同一个 stack 入口，但仍需要用户显式提供目标。
+
+当前限制：
+- 这不是系统级进程守护；脚本启动后不负责自动重启崩溃进程。
+- 还没有告警通知；scheduler 的失败停手仍主要通过结构化输出和日志观察。
+- M5 GraphRAG、M6 软广/达人、公开视频/公开图文/平台定时发布仍未开始。
+
+下一步建议：
+- 如果继续收口工程化，可补“启动后健康检查/停止脚本/日志查看脚本”。
+- 如果转主线，优先进入 M5 GraphRAG 前的数据入库/查询设计。
+
 ## 2026-06-13 平台指标后台同步调度器初版
 
 本轮目标是在平台指标批量同步和工作台入口之后，继续收口 M4 的低风险遗留项：补一个模块化的后台同步调度入口。该能力只复用已有 creator 作品列表只读同步链路，不触发发布、编辑、删除、公开或平台定时发布。

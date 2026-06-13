@@ -9,7 +9,12 @@ def read_script(name: str) -> str:
 
 
 def test_startup_templates_exist() -> None:
-    for name in ("start_local_api.ps1", "start_sqlite_api.ps1", "start_sqlite_worker.ps1"):
+    for name in (
+        "start_local_api.ps1",
+        "start_sqlite_api.ps1",
+        "start_sqlite_worker.ps1",
+        "start_sqlite_stack.ps1",
+    ):
         assert (ROOT / "scripts" / name).exists()
 
 
@@ -41,3 +46,34 @@ def test_sqlite_worker_template_supports_watchdog_and_heartbeat_config() -> None
     assert "XHS_AGENT_QUEUE_HEARTBEAT_INTERVAL_SECONDS" in script
     assert "XHS_AGENT_QUEUE_HEARTBEAT_TIMEOUT_SECONDS" in script
     assert "--watchdog-loop" in script
+
+
+def test_sqlite_stack_template_orchestrates_runtime_processes() -> None:
+    script = read_script("start_sqlite_stack.ps1")
+
+    assert "CheckOnly" in script
+    assert "Start-Process" in script
+    assert "-WindowStyle Hidden" in script
+    assert "run_api.py" in script
+    assert "run_worker.py" in script
+    assert "--watchdog-loop" in script
+    assert "run_creator_performance_scheduler.py" in script
+    assert "XHS_AGENT_RUN_DB_PATH" in script
+    assert "XHS_AGENT_QUEUE_DB_PATH" in script
+    assert "XHS_AGENT_MEMORY_DB_PATH" in script
+    assert "CREATOR_MODE" in script
+
+
+def test_sqlite_stack_template_supports_scheduler_targets_and_toggles() -> None:
+    script = read_script("start_sqlite_stack.ps1")
+
+    assert "CreatorNoteId" in script
+    assert "RunId" in script
+    assert "StartScheduler" in script
+    assert "NoApi" in script
+    assert "NoWorker" in script
+    assert "NoWatchdog" in script
+    assert "--creator-note-id" in script
+    assert "--run-id" in script
+    assert "--schedule-interval-seconds" in script
+    assert "--max-consecutive-failed-rounds" in script
