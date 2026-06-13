@@ -1312,3 +1312,40 @@ Worker service
 - 当前结构化数据主线已经覆盖 foundation schema、业务表写入、业务查询、事件时间线、队列/worker 可观测、worker watchdog、SQLite stack smoke 和表现数据闭环。
 - 下一步建议转入真实 Cookie 小流量复验：用一条真实私密发布记录确认 `creator_note_id -> /performance -> performance_records` 闭环。
 - 历史 operation memory 表现记录批量补偿、GraphRAG 入库和历史大迁移继续后置。
+
+## 29. 2026-06-13 表现闭环真实检查与历史补偿完成
+
+本次主线继续提高表现数据闭环的可复验性和开发效率：
+
+- 新增 `scripts/check_real_performance_closure.py`，把上一轮手工真实闭环检查工具化。
+  - 只读 creator 作品列表，不触发真实发布或修改。
+  - 支持把指定 `data/api_runs/<run_id>.json` 导入临时 SQLite。
+  - 支持指定 `creator_note_id`，并可从平台列表指标快照补齐表现 payload。
+  - 复用 `api.record_performance()` 验证 operation memory、run state 和 `performance_records` 一致性。
+  - 输出结构化 JSON，便于后续 smoke 或人工复核。
+- 新增 `scripts/backfill_performance_records.py`，补齐历史 operation memory 表现记录回写能力。
+  - 默认 dry-run，降低误写真实工作库风险。
+  - `--apply` 时复用 `/performance` 同步路径，不新增旁路 SQL。
+  - 支持按 `record_id`、`creator_note_id`、`post_id` 和 `limit` 缩小范围。
+  - 通过确定性 `performance_id` 保持重复执行幂等。
+- 新增测试：
+  - `tests/test_check_real_performance_closure.py`
+  - `tests/test_backfill_performance_records.py`
+- 新增设计和计划文档：
+  - `docs/superpowers/specs/2026-06-13-performance-backfill-and-real-check-design.md`
+  - `docs/superpowers/plans/2026-06-13-performance-backfill-and-real-check.md`
+
+验证补充：
+- TDD RED 覆盖脚本缺失、CLI `--runs-dir` 缺失、apply 未实现和 `limit=0` 边界。
+- 新增定点测试通过：`tests/test_check_real_performance_closure.py tests/test_backfill_performance_records.py` -> `7 passed`。
+- 相关回归通过：表现闭环工具、`/performance` 反向同步、业务表写入和旧同步脚本组合 -> `31 passed`。
+- SQLite stack smoke 通过：`scripts/check_sqlite_stack.py` -> `"ok": true`。
+- Python 编译检查通过：`compileall app scripts tests`。
+- 全量测试通过：`234 passed`。
+
+路线图影响：
+
+- “历史 operation memory 表现记录到 `performance_records` 的一次性补偿脚本”从待办调整为初版完成。
+- “真实 Cookie 小流量复验前的表现闭环确认”从手工步骤提升为可复跑脚本。
+- 当前仍未完成真实平台指标自动抓取、公开/视频/定时发布、GraphRAG 入库、历史大规模迁移、阶段二软广和达人能力。
+- 下一步建议先完成本轮全量验证和提交，再用真实 `run_fda76a64a278` 与 `creator_note_id=6a2bce0b000000003502c564` 跑一次只读闭环工具，确认工具化脚本复现真实闭环。

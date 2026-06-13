@@ -2302,3 +2302,51 @@
 下一步建议：
 - 在真实 Cookie 小流量复验前，用当前 SQLite stack smoke 加一条真实发布记录验证表现闭环。
 - 后续可考虑做历史 operation memory 表现记录到 `performance_records` 的一次性补偿脚本。
+
+## 2026-06-13 表现闭环真实检查与历史补偿
+
+本轮目标是继续收口表现数据闭环，把上一轮手工确认过的真实 `creator_note_id -> /performance -> performance_records` 闭环工具化，并补上历史 operation memory 表现记录的补偿入口。
+
+已完成：
+- 新增设计文档：
+  - `docs/superpowers/specs/2026-06-13-performance-backfill-and-real-check-design.md`
+- 新增实施计划：
+  - `docs/superpowers/plans/2026-06-13-performance-backfill-and-real-check.md`
+- 新增 `scripts/check_real_performance_closure.py`：
+  - 只读调用 creator 作品列表，不触发发布、修改、删除或重试。
+  - 将指定 JSON run 导入临时 SQLite run store。
+  - 从 run state 登记 operation memory，并把 `operation_record_id` 回写到临时 run state。
+  - 调用现有 `api.record_performance()` 验证 run state、operation memory 和 `performance_records` 是否一致。
+  - 支持 `--run-id`、`--creator-note-id`、`--db-path`、`--runs-dir`、`--limit`、`--use-platform-metrics` 和手工指标参数。
+  - 输出结构化 JSON，包括 `ok`、`platform_note`、`business_sync`、`business_counts`、`performance_record` 和 `checks`。
+- 新增 `scripts/backfill_performance_records.py`：
+  - 扫描当前 operation memory 中 `status=performance_recorded` 且有表现数据的记录。
+  - 默认 dry-run，只列出候选，不写 run store 或业务表。
+  - `--apply` 时复用 `api.record_performance()` 补偿 run state 与 `performance_records`，不新增旁路 SQL。
+  - 支持 `--record-id`、`--creator-note-id`、`--post-id`、`--limit` 过滤。
+  - 多次执行保持幂等，同一 run/operation/creator note 只更新同一条 `performance_records`。
+- 新增测试：
+  - `tests/test_check_real_performance_closure.py`
+  - `tests/test_backfill_performance_records.py`
+
+已验证：
+- TDD RED：真实检查脚本测试先因 `scripts.check_real_performance_closure` 缺失失败；CLI `--runs-dir` 测试先因参数缺失失败。
+- TDD RED：历史补偿脚本测试先因 `scripts.backfill_performance_records` 缺失失败；apply/幂等测试先因 apply 未实现失败；`limit=0` 边界测试先因误收候选失败。
+- 定点新测试通过：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_check_real_performance_closure.py tests/test_backfill_performance_records.py -q` -> `7 passed`。
+- 相关回归通过：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_check_real_performance_closure.py tests/test_backfill_performance_records.py tests/test_creator_note_performance_sync.py tests/test_api_business_table_sync.py tests/test_business_store.py tests/test_sync_run_to_business_tables_script.py -q` -> `31 passed`。
+- SQLite stack smoke 通过：`D:\Anaconda\envs\ContentShare\python.exe .\scripts\check_sqlite_stack.py` -> `"ok": true`。
+- 编译检查通过：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app scripts tests`。
+- 全量测试通过：`D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `234 passed`。
+
+当前效果：
+- 下一次真实 Cookie 小流量复验前，可以先用 `check_real_performance_closure.py` 复跑指定真实 run 和 creator note 的本地闭环。
+- 历史已经人工录入表现的 operation memory 记录，可以用 `backfill_performance_records.py --apply` 补回 SQLite run state 和 `performance_records`。
+
+当前限制：
+- 真实检查脚本只读 creator 作品列表，不自动抓取后台指标，不做真实发布。
+- 补偿脚本依赖当前 `/performance` 匹配逻辑；找不到 success run 时会跳过并保留原因。
+- 本轮尚未执行真实网络只读验证；如沙箱代理阻断，需要提权运行真实 creator 列表检查。
+
+下一步建议：
+- 完成本轮全量验证和提交后，用真实 `run_fda76a64a278` 与 `creator_note_id=6a2bce0b000000003502c564` 运行一次只读闭环工具，确认工具化脚本也能复现上一轮手工闭环。
+- 后续再评估是否做平台指标自动抓取、GraphRAG 入库和历史大规模迁移。
