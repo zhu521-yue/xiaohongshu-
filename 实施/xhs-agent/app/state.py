@@ -10,6 +10,21 @@ from typing import Any, Dict, List, Literal, Optional, TypedDict
 class XHSState(TypedDict, total=False):
     # Runtime
     run_id: str
+    run_status: Literal["queued", "running", "waiting_review", "rejected", "published", "failed", "cancelled", "timed_out"]
+    review_action: Optional[Literal["approved", "rejected"]]
+    review_required: bool
+    review_interrupt_payload: Dict[str, Any]
+    creator_publish_requested: bool
+    creator_publish_private: bool
+    creator_human_confirmed: bool
+    creator_publish_status: Optional[str]
+    creator_publish_mode: Optional[str]
+    creator_note_id: Optional[str]
+    creator_publish_error: Optional[str]
+    creator_publish_result: Dict[str, Any]
+    failure_category: Optional[str]
+    failure_category_label: Optional[str]
+    node_events: List[Dict[str, Any]]
 
     # 用户输入
     user_topic: str
