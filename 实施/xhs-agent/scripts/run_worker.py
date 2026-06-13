@@ -55,7 +55,8 @@ def run_once(
         execute_run(run_id)
         record = load_run(run_id) or {}
         status = record.get("status")
-        if status == "success":
+        run_status = (record.get("summary") or {}).get("run_status")
+        if status == "success" or status == "waiting_review" or run_status == "waiting_review":
             queue.mark_succeeded(run_id, worker_id)
             logger.info("worker_succeeded run_id=%s worker_id=%s", run_id, worker_id)
         elif status == "failed":

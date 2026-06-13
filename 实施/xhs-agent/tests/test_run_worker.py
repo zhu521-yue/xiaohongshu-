@@ -128,6 +128,28 @@ def test_run_worker_once_marks_failed_run_status(monkeypatch) -> None:
     assert queue.failed == [("run_1", "worker-a", "graph failed")]
 
 
+def test_run_worker_once_marks_waiting_review_as_queue_success() -> None:
+    queue = FakeQueue("run_waiting")
+    records = {
+        "run_waiting": {
+            "status": "waiting_review",
+            "summary": {"run_status": "waiting_review"},
+            "error": None,
+        }
+    }
+
+    did_work = run_worker.run_once(
+        queue=queue,
+        worker_id="worker-a",
+        execute_run=lambda run_id: None,
+        load_run=lambda run_id: records[run_id],
+    )
+
+    assert did_work is True
+    assert queue.succeeded == [("run_waiting", "worker-a")]
+    assert queue.failed == []
+
+
 def test_run_worker_once_returns_false_when_no_job() -> None:
     queue = FakeQueue(None)
 
