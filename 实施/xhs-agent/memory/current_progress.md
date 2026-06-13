@@ -1,5 +1,68 @@
 # 当前工程进度
 
+## 2026-06-13 平台指标自动抓取初版
+
+本轮目标是在用户更新 creator cookie 后，先确认真实只读访问是否恢复，再把“作品列表指标快照 -> /performance -> operation memory/run state/performance_records”做成模块化的手动触发能力。
+
+已完成：
+- 更新后 cookie 只读复验通过：
+  - `scripts/check_creator_platform.py --mode spider_xhs --check-only` -> `ok=true`
+  - `scripts/check_creator_platform.py --mode spider_xhs --list --limit 5` -> `source=creator_v2`
+  - 最近作品列表可读到 `creator_note_id=6a2d186a000000003503829c` 和历史私密笔记。
+- 定位旧闭环脚本失败根因：
+  - `check_real_performance_closure.py` 默认查 `data/api_runs/<run_id>.json`
+  - 最新 LangGraph-first 真实复验 run 实际保存在隔离 SQLite `data/langgraph_private_publish_20260613.sqlite3`
+  - 失败不是 cookie 问题，而是旧脚本只适配 JSON run 文件。
+- 新增模块化服务：
+  - `app/creator_performance_sync.py`
+  - 负责解析 `creator_note_id`、从 `run_id` 解析平台笔记 ID、校验 creator 状态、构造 performance payload。
+  - 通过依赖注入接收 run loader、status reader、performance recorder，不直接绑定 HTTP、SQLite 或平台实现。
+- 新增 API 薄入口：
+  - `app.api.sync_creator_note_performance()`
+  - `POST /creator/notes/performance-sync`
+  - 支持 `creator_note_id` 或 `run_id`，并支持 `limit`、`wait`、`attempts`、`interval_seconds`、`notes`。
+- 新增 CLI：
+  - `scripts/sync_creator_note_performance.py`
+  - 支持 `--creator-note-id` 或 `--run-id`
+  - 支持 `--mode spider_xhs`、`--wait`、`--limit`、`--attempts`、`--interval-seconds`、`--notes`
+- 新增测试：
+  - `tests/test_creator_performance_sync_service.py`
+  - `tests/test_sync_creator_note_performance_script.py`
+  - 扩展 `tests/test_api_platform_status.py`
+
+验证结果：
+- TDD RED：新增测试先因 `app.creator_performance_sync` 和 `scripts.sync_creator_note_performance` 缺失失败。
+- 定点测试通过：`tests/test_creator_performance_sync_service.py tests/test_api_platform_status.py::test_http_creator_note_performance_sync_endpoint_passes_parameters tests/test_sync_creator_note_performance_script.py` -> `8 passed`。
+- 相关回归通过：自动抓取服务/API/CLI、`/performance` 反向同步、真实闭环工具和历史补偿组合 -> `27 passed`。
+- 编译检查通过：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app scripts tests`。
+- 全量测试通过：`D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `255 passed`。
+- 真实只读自动抓取复验通过：
+  - 使用隔离 SQLite `data/langgraph_private_publish_20260613.sqlite3`
+  - 命令：`scripts/sync_creator_note_performance.py --run-id run_877b49f35f98 --mode spider_xhs --limit 50 --wait --attempts 3 --interval-seconds 1`
+  - `synced=true`
+  - `resolved_target.source=run_state`
+  - `creator_note_id=6a2d186a000000003503829c`
+  - `creator_note_status.status=synced`
+  - `visibility_label=仅自己可见`
+  - 平台指标快照仍为 0：`views=0`、`likes=0`、`collects=0`、`comments=0`
+  - 本地回填成功：`performance_result.business_sync.status=success`
+  - 业务表计数包含 `performance_records=1`
+
+当前效果：
+- M4 的“平台指标自动抓取”已有手动触发初版：可以从 creator 作品列表快照自动生成 `/performance` payload，并复用现有表现回填链路。
+- 新入口支持 SQLite run store，不再依赖 JSON run 文件，因此可复验最新 LangGraph-first 隔离 DB run。
+- 该能力只读访问真实平台，不触发发布、编辑、删除、公开或定时发布。
+
+当前限制：
+- 这还不是后台定时轮询或批量调度，只是手动触发的单条同步能力。
+- 当前指标来源仍是 creator 作品列表返回的快照字段；如果平台未来拆分更详细的数据接口，还需要新增只读适配器。
+- 公开视频、公开图文、定时发布仍未实现。
+- M5 GraphRAG 入库和 M6 阶段二软广/达人能力仍未开始。
+
+下一步建议：
+- 可把该脚本纳入真实平台日常巡检：先按 `--run-id` 同步指定私密笔记，再查看业务表和运营记忆。
+- 后续再评估是否做批量同步、后台定时任务、工作台按钮或指标趋势分析。
+
 ## 2026-06-13 LangGraph-first 真实私密发布端到端复验
 
 本轮目标是在只读闭环复验通过后，执行一条低风险真实写入复验，确认 LangGraph-first 主路径能完成：`waiting_review -> 绑定真实图片 -> creator 私密发布 -> 作品列表只读同步 -> /performance 回填`。

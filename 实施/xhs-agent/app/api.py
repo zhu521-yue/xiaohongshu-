@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from app import creator_performance_sync as creator_performance_sync_service
 from app.config import load_settings
 from app.business_store import sync_run_business_tables
 from app.business_queries import get_business_run_snapshot as read_business_run_snapshot
@@ -1072,6 +1073,30 @@ def get_creator_note_status(
     }
 
 
+def sync_creator_note_performance(
+    *,
+    creator_note_id: str = "",
+    run_id: str = "",
+    limit: int = 50,
+    wait: bool = False,
+    attempts: int = 5,
+    interval_seconds: float = 2.0,
+    notes: str | None = None,
+) -> dict[str, Any]:
+    return creator_performance_sync_service.sync_creator_note_performance(
+        creator_note_id=creator_note_id,
+        run_id=run_id,
+        limit=limit,
+        wait=wait,
+        attempts=attempts,
+        interval_seconds=interval_seconds,
+        notes=notes,
+        run_loader=_load_run,
+        status_reader=get_creator_note_status,
+        performance_recorder=record_performance,
+    )
+
+
 def _performance_business_sync_result(
     status: str,
     *,
@@ -1490,6 +1515,22 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
             if path == "/runs":
                 record = submit_run(payload)
                 self._send_json(202, {"ok": True, "run": record})
+                return
+
+            if path == "/creator/notes/performance-sync":
+                result = sync_creator_note_performance(
+                    creator_note_id=str(payload.get("creator_note_id") or "").strip(),
+                    run_id=str(payload.get("run_id") or "").strip(),
+                    limit=_int(payload.get("limit"), default=50),
+                    wait=_bool(payload.get("wait"), default=False),
+                    attempts=_int(payload.get("attempts"), default=5),
+                    interval_seconds=_float(
+                        payload.get("interval_seconds"),
+                        default=2.0,
+                    ),
+                    notes=str(payload.get("notes") or "").strip() or None,
+                )
+                self._send_json(200, {"ok": True, **result})
                 return
 
             if path == "/performance":

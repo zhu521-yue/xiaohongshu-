@@ -1385,3 +1385,42 @@ Worker service
 - 用真实 Cookie 做一条小流量端到端复验：LangGraph waiting_review -> 绑定真实图片 -> creator 私密发布 -> 作品列表只读同步 -> `/performance` 回填。
 - 真实平台闭环稳定后，再进入 M5 GraphRAG 运营记忆增强。
 - 公开图文、视频、定时发布、平台指标自动抓取、阶段二软广和达人能力继续后置。
+
+## 31. 2026-06-13 平台指标手动触发自动抓取初版完成
+
+本次主线把“creator 作品列表指标快照 -> `/performance` -> operation memory / run state / `performance_records`”从人工拼接提升为手动触发的模块化能力。
+
+已完成：
+
+- 新增 `app/creator_performance_sync.py`：
+  - 负责解析同步目标、从 `run_id` 读取 `creator_note_id`、校验平台状态、构造表现回填 payload。
+  - 使用依赖注入接收 run loader、creator status reader 和 performance recorder，不直接耦合 HTTP、SQLite 或平台实现。
+- 新增 API 入口：
+  - `app.api.sync_creator_note_performance()`
+  - `POST /creator/notes/performance-sync`
+  - 支持 `creator_note_id` 或 `run_id`，支持等待参数和 operator notes。
+- 新增 CLI：
+  - `scripts/sync_creator_note_performance.py`
+  - 支持 `--creator-note-id` 或 `--run-id`。
+  - 支持 `--mode spider_xhs`、`--wait`、`--limit`、`--attempts`、`--interval-seconds`。
+- 真实 cookie 更新后复验通过：
+  - `check_creator_platform.py --mode spider_xhs --check-only` -> `ok=true`
+  - `check_creator_platform.py --mode spider_xhs --list --limit 5` -> `source=creator_v2`
+  - `sync_creator_note_performance.py --run-id run_877b49f35f98 --mode spider_xhs --wait` -> `synced=true`
+  - 从 SQLite run state 解析到 `creator_note_id=6a2d186a000000003503829c`
+  - 平台状态 `status=synced`，可见性 `仅自己可见`
+  - 当前平台指标快照为 0，回填链路正常，`performance_records=1`
+
+验证补充：
+
+- TDD RED：服务模块和脚本缺失测试先失败。
+- 定点测试通过：自动抓取服务、HTTP 参数转发和 CLI -> `8 passed`。
+- 相关回归通过：自动抓取、平台状态、表现反向同步、真实闭环工具和历史补偿 -> `27 passed`。
+- Python 编译检查通过：`compileall app scripts tests`。
+- 全量测试通过：`255 passed`。
+
+路线图影响：
+
+- “平台指标自动抓取”从未完成调整为手动触发初版完成。
+- 该能力仍不是后台定时轮询、批量同步或趋势分析。
+- 公开图文、视频、定时发布、GraphRAG 入库、历史大规模迁移、阶段二软广和达人能力继续后置。

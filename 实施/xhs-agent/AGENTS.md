@@ -28,7 +28,7 @@
 - M1 内容生成最小闭环：基本完成。主题到图文/视频、合规、人工审核、Markdown 保存已可用；`human_review` 已升级为 LangGraph interrupt/resume。
 - M2 只读采集：部分完成。已有 collector 薄封装、Spider_XHS 采集、评论去噪、去标识化和候选池评分初版；评论质量评分细化、Cookie 失效产品化提示仍需继续完善。
 - M3 复盘闭环 + 运营记忆：基本完成，并已扩展 SQLite operation memory、业务表、表现录入反向同步、复盘、运营记忆前端展示和历史表现补偿脚本。
-- M4 创作者平台发布：部分完成。已验证 LangGraph-first 私密图文发布、真实图片素材绑定、作品列表同步、发布状态等待和表现回填；公开发布、定时发布、视频发布、平台指标自动抓取仍未完成。
+- M4 创作者平台发布：部分完成。已验证 LangGraph-first 私密图文发布、真实图片素材绑定、作品列表同步、发布状态等待、表现回填和平台指标手动触发自动抓取初版；公开发布、定时发布、视频发布、批量/定时指标同步仍未完成。
 - M5 GraphRAG 运营记忆增强：未完成。
 - M6 阶段二软广 + 达人：未完成。
 - M17a 已完成最小生产护栏：API token、日志落盘、敏感字段脱敏、运行配置检查和 token 烟测。
@@ -44,7 +44,7 @@
 - M25 已完成平台安全护栏：Cookie 预检、发布日限、随机延时、失败停手和本地 guardrail 状态记录。
 - M26 已完成发布状态等待：按需只读轮询 creator 作品列表，避免私密发布后短暂 `not_found` 误判。
 - 最新运行时主线已收敛为 LangGraph-first：API/CLI 默认 `engine=langgraph`，`engine=local` 仅保留为显式兼容路径。
-- 最近验证状态：全量测试 `247 passed`，compileall 通过；HTTP API smoke 通过，run 最终为 `status=success` 且 `summary.run_status=waiting_review`。
+- 最近验证状态：平台指标自动抓取初版全量测试 `255 passed`，compileall 通过；真实 creator 只读同步通过，`run_877b49f35f98` 可从 SQLite run state 解析 `creator_note_id=6a2d186a000000003503829c` 并回填到 `performance_records`。
 
 ## 从0手册对照后的未完成主线
 
@@ -54,7 +54,7 @@
    - 采集/发布安全护栏已有初版，后续继续补长期运行监控和告警。
 2. M4 真实平台端到端：
    - LangGraph-first 私密图文真实闭环已完成最新复验：`waiting_review -> 绑定真实图片 -> creator 私密发布 -> 作品列表只读同步 -> /performance 回填`。
-   - 平台指标自动抓取尚未完成，当前表现指标仍主要依赖人工录入或作品列表快照。
+   - 平台指标自动抓取已有手动触发初版：`POST /creator/notes/performance-sync` 和 `scripts/sync_creator_note_performance.py` 可从作品列表快照回填 `/performance`；批量同步、后台定时、趋势分析仍未完成。
    - 公开视频/公开图文/定时发布尚未完成。
 3. M5 GraphRAG 运营记忆增强：
    - 主题 -> 子主题 -> 痛点 -> 内容形式 -> 表现 的图谱关系。
@@ -81,7 +81,7 @@
 
 1. 不要继续优先做前端细节小功能。
 2. 把本次 LangGraph-first 真实私密发布复验作为 M4 私密图文最新稳定基线。
-3. 下一步优先评估平台指标自动抓取，或进入 M5 GraphRAG 前的查询/入库准备。
+3. 下一步优先评估平台指标批量/定时同步、趋势分析，或进入 M5 GraphRAG 前的查询/入库准备。
 4. 公开图文、视频、定时发布继续后置，执行前必须重新确认平台写入风险。
 5. M6 阶段二软广和达人能力最后做。
 

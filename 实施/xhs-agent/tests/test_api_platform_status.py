@@ -36,6 +36,25 @@ def _read_json(url: str, headers: dict[str, str] | None = None) -> tuple[int, di
         return exc.code, json.loads(exc.read().decode("utf-8"))
 
 
+def _post_json(
+    url: str,
+    payload: dict,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, dict]:
+    request_headers = {"Content-Type": "application/json", **(headers or {})}
+    request = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=request_headers,
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=10) as response:
+            return response.status, json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        return exc.code, json.loads(exc.read().decode("utf-8"))
+
+
 def test_platform_status_returns_runtime_and_guardrail_state(monkeypatch) -> None:
     collector_runtime = {
         "ok": True,
@@ -146,6 +165,72 @@ def test_http_creator_note_status_endpoint_passes_wait_parameters(monkeypatch, t
     assert status == 200
     assert data["ok"] is True
     assert data["creator_note_status"]["status"] == "synced"
+
+
+def test_http_creator_note_performance_sync_endpoint_passes_parameters(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("XHS_AGENT_API_TOKEN", "secret-token")
+    monkeypatch.setenv("XHS_AGENT_RUN_STORE", "json")
+    monkeypatch.setenv("XHS_AGENT_RUN_QUEUE", "local")
+
+    def fake_sync(
+        *,
+        creator_note_id: str = "",
+        run_id: str = "",
+        limit: int = 50,
+        wait: bool = False,
+        attempts: int = 5,
+        interval_seconds: float = 2.0,
+        notes: str | None = None,
+    ) -> dict:
+        assert creator_note_id == "note_sync_http"
+        assert run_id == "run_sync_http"
+        assert limit == 25
+        assert wait is True
+        assert attempts == 3
+        assert interval_seconds == 0.25
+        assert notes == "manual platform sync"
+        return {
+            "synced": True,
+            "resolved_target": {
+                "creator_note_id": creator_note_id,
+                "run_id": run_id,
+                "source": "request",
+            },
+            "performance_payload": {"creator_note_id": creator_note_id, "views": 10},
+            "performance_result": {"business_sync": {"status": "success"}},
+        }
+
+    monkeypatch.setattr(api, "sync_creator_note_performance", fake_sync, raising=False)
+
+    server_urls = _start_test_server(monkeypatch, tmp_path)
+    base_url = next(server_urls)
+    try:
+        status, data = _post_json(
+            f"{base_url}/creator/notes/performance-sync",
+            {
+                "creator_note_id": "note_sync_http",
+                "run_id": "run_sync_http",
+                "limit": 25,
+                "wait": True,
+                "attempts": 3,
+                "interval_seconds": 0.25,
+                "notes": "manual platform sync",
+            },
+            {"Authorization": "Bearer secret-token"},
+        )
+    finally:
+        try:
+            next(server_urls)
+        except StopIteration:
+            pass
+
+    assert status == 200
+    assert data["ok"] is True
+    assert data["synced"] is True
+    assert data["performance_result"]["business_sync"]["status"] == "success"
 
 
 def test_http_business_run_endpoint_returns_business_snapshot(monkeypatch, tmp_path: Path) -> None:
