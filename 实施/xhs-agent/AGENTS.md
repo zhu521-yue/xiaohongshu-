@@ -2,7 +2,7 @@
 
 ## 回复与协作约定
 
-- 每条回复正文开头必须先加：`锋神殿下，奴婢认为：`
+- 每条回复正文开头必须先加：`锋宝：`
 - 当用户提供状态描述和问题时，先复述用户的核心目标，再回答。
 - 如果用户没有明确目标，先澄清目标，不要直接猜测。
 - 规划、设计、实施计划统一使用中文，不要用英文标题和英文计划模板。
@@ -24,11 +24,11 @@
 ## 当前阶段
 
 - 按 `从0实现指导手册.md` 重新校准后，当前不是“快完成”，而是：阶段一 MVP 与部分 creator 私密发布闭环已完成，完整两阶段系统仍有较多主线任务。
-- M0 环境与链路验证：部分完成。mock 链路和脚本齐全，但真实 PC Cookie、真实 creator Cookie、真实发布端到端仍需最新验证；千帆/蒲公英 Cookie 未进入。
-- M1 内容生成最小闭环：基本完成。主题到图文/视频、合规、人工审核、Markdown 保存已可用；但 `human_review` 还不是 LangGraph interrupt。
-- M2 只读采集：部分完成。已有 collector 薄封装、Spider_XHS 采集、评论去噪和去标识化；但随机延时、Cookie 失效前置自检、正式笔记/评论表、采集质量评分仍不完整。
-- M3 复盘闭环 + JSON 运营记忆：基本完成，并已扩展 SQLite operation memory、表现录入、复盘、运营记忆前端展示。
-- M4 创作者平台发布：部分完成。已做私密图文发布低风险子集；公开发布、定时发布、视频发布、发布间随机延时、单日发布限制、风控停手、真实端到端自测仍未完成。
+- M0 环境与链路验证：部分完成。mock 链路和脚本齐全，真实 PC/creator Cookie 已有预检和小流量验证记录；LangGraph-first 迁移后仍需做一次最新真实端到端复验，千帆/蒲公英 Cookie 未进入。
+- M1 内容生成最小闭环：基本完成。主题到图文/视频、合规、人工审核、Markdown 保存已可用；`human_review` 已升级为 LangGraph interrupt/resume。
+- M2 只读采集：部分完成。已有 collector 薄封装、Spider_XHS 采集、评论去噪、去标识化和候选池评分初版；评论质量评分细化、Cookie 失效产品化提示仍需继续完善。
+- M3 复盘闭环 + 运营记忆：基本完成，并已扩展 SQLite operation memory、业务表、表现录入反向同步、复盘、运营记忆前端展示和历史表现补偿脚本。
+- M4 创作者平台发布：部分完成。已验证私密图文发布、真实图片素材绑定、作品列表同步、发布状态等待和表现回填；公开发布、定时发布、视频发布、平台指标自动抓取仍未完成，LangGraph-first 主链还需最新真实小流量复验。
 - M5 GraphRAG 运营记忆增强：未完成。
 - M6 阶段二软广 + 达人：未完成。
 - M17a 已完成最小生产护栏：API token、日志落盘、敏感字段脱敏、运行配置检查和 token 烟测。
@@ -41,23 +41,20 @@
 - M22 已完成工作台闭环可视化：运营记忆卡片展示创作发布、平台笔记、表现状态、表现分，并能一键填入表现表单。
 - M23 已完成工作台运行历史详情与失败诊断：任务结果区展示运行诊断、错误详情，并支持用原任务参数重新提交。
 - M24 已完成结构化失败分类：后端返回 `failure_category` / `failure_category_label`，前端优先使用后端分类。
-- 最近验证状态：全量测试 `111 passed`，compileall 通过，浏览器 mobile smoke 通过，带 mock 提交的浏览器检查通过且无 console error。
+- M25 已完成平台安全护栏：Cookie 预检、发布日限、随机延时、失败停手和本地 guardrail 状态记录。
+- M26 已完成发布状态等待：按需只读轮询 creator 作品列表，避免私密发布后短暂 `not_found` 误判。
+- 最新运行时主线已收敛为 LangGraph-first：API/CLI 默认 `engine=langgraph`，`engine=local` 仅保留为显式兼容路径。
+- 最近验证状态：全量测试 `247 passed`，compileall 通过；HTTP API smoke 通过，run 最终为 `status=success` 且 `summary.run_status=waiting_review`。
 
 ## 从0手册对照后的未完成主线
 
-1. M0/M2/M4 安全护栏补齐：
-   - 真实 PC Cookie 自检前置。
-   - 真实 creator Cookie 自检前置。
-   - 采集/发布随机延时。
-   - 单日发布量个位数限制。
-   - 风控或 `success=False` 后立即停手，不自动重试轰炸。
-   - Cookie 失效提示与重取流程。
+1. M0/M2/M4 安全护栏产品化：
+   - Cookie 失效提示与重取流程仍需更完整的工作台/脚本入口。
+   - 真实 Cookie 状态需要在 LangGraph-first 主链小流量复验前重新确认。
+   - 采集/发布安全护栏已有初版，后续继续补长期运行监控和告警。
 2. M4 真实平台端到端：
-   - 真实图片素材绑定后私密发布。
-   - 返回真实 `creator_note_id`。
-   - 同步真实作品列表。
-   - 按真实 `creator_note_id` 回填表现。
-   - 发布状态轮询尚未完成。
+   - LangGraph-first 迁移后，还需要复跑一条真实小流量闭环：`waiting_review -> 绑定真实图片 -> creator 私密发布 -> 作品列表只读同步 -> /performance 回填`。
+   - 平台指标自动抓取尚未完成，当前表现指标仍主要依赖人工录入或作品列表快照。
    - 公开视频/公开图文/定时发布尚未完成。
 3. M5 GraphRAG 运营记忆增强：
    - 主题 -> 子主题 -> 痛点 -> 内容形式 -> 表现 的图谱关系。
@@ -83,27 +80,16 @@
 ## 当前优先级
 
 1. 不要继续优先做前端细节小功能。
-2. 下一步建议进入 M25：平台安全护栏补齐。
-3. M25 推荐范围：Cookie 自检前置、采集/发布随机延时、发布频率限制、风控失败停手。
-4. M25 完成后，再做真实平台端到端验证。
-5. 真实平台稳定后，再进入 M5 GraphRAG；M6 阶段二最后做。
+2. 先提交/收口当前 LangGraph-first runtime 和边界清理成果。
+3. 用真实 Cookie 做一条 LangGraph-first 小流量端到端复验。
+4. 真实平台闭环稳定后，再进入 M5 GraphRAG；M6 阶段二最后做。
+5. 公开图文、视频、定时发布和平台指标自动抓取继续后置。
 
 ## 当前工作树提示
 
-- M20-M24 相关代码和测试仍在工作区，尚未提交。
-- 已知新增计划与测试包括：
-  - `docs/superpowers/plans/2026-06-11-creator-image-assets.md`
-  - `docs/superpowers/plans/2026-06-11-creator-note-performance-sync.md`
-  - `docs/superpowers/plans/2026-06-11-workbench-run-diagnostics.md`
-  - `docs/superpowers/plans/2026-06-11-structured-failure-category.md`
-  - `tests/test_creator_asset_binding.py`
-  - `tests/test_creator_note_performance_sync.py`
-  - `tests/test_workbench_creator_assets_static.py`
-  - `tests/test_workbench_creator_notes_static.py`
-  - `tests/test_workbench_memory_visibility_static.py`
-  - `tests/test_workbench_run_diagnostics_static.py`
-  - `tests/test_run_failure_category.py`
-- 新线程开始后，先跑 `git status --short` 和必要测试，确认工作树仍是这个状态。
+- 最近主线代码已提交到 `71b1c5c chore: clean up langgraph runtime api boundary`，本地分支领先远端。
+- 当前只应有项目记忆/协作约定类文档变更；新线程开始后，先跑 `git status --short` 和必要测试，确认工作树状态。
+- 旧 `.worktrees/langgraph-first-runtime-redesign` 路径在当前工作区不可见，后续如再次出现需要单独确认或清理。
 
 ## 其他协作注意事项
 
