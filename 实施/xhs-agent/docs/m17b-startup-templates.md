@@ -109,6 +109,29 @@ Start the read-only creator performance scheduler as part of the stack:
 
 The scheduler still only reads creator note status and metrics snapshots through the existing performance sync path. It does not trigger public publishing, editing, deletion, or platform scheduled publishing.
 
+Check a running stack:
+
+```powershell
+.\scripts\check_sqlite_stack_health.ps1 -Python $python -BaseUrl http://127.0.0.1:8010
+```
+
+Use `-ConfigOnly` to run only configuration checks, or `-SkipApi` to skip HTTP checks when the API is intentionally not running.
+
+View recent logs:
+
+```powershell
+.\scripts\tail_sqlite_stack_logs.ps1 -Tail 80
+```
+
+Stop matching stack processes. The default is a dry run:
+
+```powershell
+.\scripts\stop_sqlite_stack.ps1
+.\scripts\stop_sqlite_stack.ps1 -Apply
+```
+
+The stop script only targets processes whose command line includes the known stack entry points: `run_api.py`, `run_worker.py`, or `run_creator_performance_scheduler.py`.
+
 ## Guarded API Mode
 
 Set a token when you want protected API endpoints to reject unauthenticated calls.

@@ -1531,3 +1531,36 @@ Worker service
 - “统一启动编排脚本”从未完成调整为初版完成。
 - 当前仍不是系统级进程守护，不负责自动重启、停止全部子进程或告警通知。
 - 下一步工程化可补健康检查/停止脚本/日志查看脚本；主线可转入 M5 GraphRAG 数据入库和查询设计。
+
+## 35. 2026-06-13 SQLite stack 健康检查、停止与日志脚本完成
+
+本次继续收口本地工程化遗留项，在统一启动脚本之后补齐运行后的健康检查、停止和日志查看入口。
+
+已完成：
+
+- 新增 `scripts/check_sqlite_stack_health.ps1`：
+  - 运行 sqlite-worker 配置预检。
+  - 可检查 API `/health` 和 `/queue`。
+  - 可查找 stack 相关进程。
+  - 支持 `-ConfigOnly` 和 `-SkipApi`。
+- 新增 `scripts/stop_sqlite_stack.ps1`：
+  - 默认 dry-run。
+  - 显式 `-Apply` 才停止匹配进程。
+  - 只匹配 `run_api.py`、`run_worker.py`、`run_creator_performance_scheduler.py`。
+- 新增 `scripts/tail_sqlite_stack_logs.ps1`：
+  - 查看 API、worker 和 scheduler 日志尾部。
+- 扩展 `tests/test_startup_templates.py` 和 `docs/m17b-startup-templates.md`。
+
+验证补充：
+
+- TDD RED：三个脚本缺失时启动模板测试先失败，`4 failed, 5 passed`。
+- RED->GREEN：`tests/test_startup_templates.py` -> `9 passed`。
+- 健康脚本 `-ConfigOnly` 和 `-SkipApi` 通过。
+- 停止脚本 dry-run 通过，未停止任何进程。
+- 日志脚本 `-Tail 5` 通过。
+
+路线图影响：
+
+- 本地 SQLite stack 的启动、健康检查、停止和日志查看入口初版已齐。
+- 工程化仍缺系统级进程守护、自动重启和告警通知，但不再阻塞进入 M5。
+- 下一步主线进入 M5 GraphRAG 数据入库/查询准备。

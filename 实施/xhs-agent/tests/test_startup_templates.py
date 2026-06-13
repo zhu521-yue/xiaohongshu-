@@ -14,6 +14,9 @@ def test_startup_templates_exist() -> None:
         "start_sqlite_api.ps1",
         "start_sqlite_worker.ps1",
         "start_sqlite_stack.ps1",
+        "check_sqlite_stack_health.ps1",
+        "stop_sqlite_stack.ps1",
+        "tail_sqlite_stack_logs.ps1",
     ):
         assert (ROOT / "scripts" / name).exists()
 
@@ -77,3 +80,40 @@ def test_sqlite_stack_template_supports_scheduler_targets_and_toggles() -> None:
     assert "--run-id" in script
     assert "--schedule-interval-seconds" in script
     assert "--max-consecutive-failed-rounds" in script
+
+
+def test_sqlite_stack_health_script_checks_config_api_queue_and_processes() -> None:
+    script = read_script("check_sqlite_stack_health.ps1")
+
+    assert "ConfigOnly" in script
+    assert "check_runtime_config.py" in script
+    assert "/health" in script
+    assert "/queue" in script
+    assert "Invoke-RestMethod" in script
+    assert "Get-CimInstance" in script
+    assert "run_api.py" in script
+    assert "run_worker.py" in script
+    assert "run_creator_performance_scheduler.py" in script
+
+
+def test_sqlite_stack_stop_script_is_dry_run_by_default() -> None:
+    script = read_script("stop_sqlite_stack.ps1")
+
+    assert "Apply" in script
+    assert "Stop-Process" in script
+    assert "Get-CimInstance" in script
+    assert "run_api.py" in script
+    assert "run_worker.py" in script
+    assert "run_creator_performance_scheduler.py" in script
+    assert "if ($Apply)" in script
+
+
+def test_sqlite_stack_log_tail_script_reads_known_logs() -> None:
+    script = read_script("tail_sqlite_stack_logs.ps1")
+
+    assert "LogDir" in script
+    assert "Tail" in script
+    assert "Get-Content" in script
+    assert "api.log" in script
+    assert "worker.log" in script
+    assert "scheduler.log" in script

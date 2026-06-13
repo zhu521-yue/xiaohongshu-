@@ -1,5 +1,46 @@
 # 当前工程进度
 
+## 2026-06-13 SQLite stack 健康检查、停止与日志脚本
+
+本轮目标是在统一启动编排脚本之后，继续收口本地工程化遗留问题：补齐启动后的健康检查、停止和日志查看入口。该能力只管理本地运行进程和日志，不触发真实平台写入。
+
+已完成：
+- 新增 `scripts/check_sqlite_stack_health.ps1`：
+  - 复用 `check_runtime_config.py --profile sqlite-worker` 做配置预检。
+  - 支持检查本地 API `/health` 和 `/queue`。
+  - 支持查找 `run_api.py`、`run_worker.py`、`run_creator_performance_scheduler.py` 相关进程。
+  - 支持 `-ConfigOnly` 和 `-SkipApi`，便于不依赖 HTTP 服务的检查。
+  - 当当前权限无法读取进程命令行时，输出 warning 并降级为空进程列表。
+- 新增 `scripts/stop_sqlite_stack.ps1`：
+  - 默认 dry-run，只列出匹配进程。
+  - 只有显式传入 `-Apply` 才会 `Stop-Process`。
+  - 只匹配已知运行入口，避免误停无关 Python 进程。
+- 新增 `scripts/tail_sqlite_stack_logs.ps1`：
+  - 读取 `api.log`、`worker.log`、`scheduler.log` 的尾部。
+  - 日志不存在时只提示，不报错。
+- 扩展 `tests/test_startup_templates.py` 覆盖三个新脚本的静态契约。
+- 更新 `docs/m17b-startup-templates.md`，补充 health、tail logs 和 stop 用法。
+
+验证结果：
+- TDD RED：新增测试先因三个脚本缺失失败，`4 failed, 5 passed`。
+- RED->GREEN：`tests/test_startup_templates.py` -> `9 passed`。
+- `check_sqlite_stack_health.ps1 -ConfigOnly` 通过。
+- `check_sqlite_stack_health.ps1 -SkipApi` 通过；当前环境读取进程命令行权限不足，已降级为 warning。
+- `stop_sqlite_stack.ps1` dry-run 通过；没有传 `-Apply`，未停止任何进程。
+- `tail_sqlite_stack_logs.ps1 -Tail 5` 通过，成功读取现有 API/worker 日志，`scheduler.log` 不存在时正常提示。
+
+当前效果：
+- SQLite stack 已有启动、健康检查、停止和日志查看四类本地运维入口。
+- 对真实平台仍保持只读/显式触发边界。
+
+当前限制：
+- 停止脚本依赖进程命令行可见性；权限不足时只能 warning，无法列出目标进程。
+- 仍没有系统级进程守护、崩溃自动重启和告警通知。
+
+下一步建议：
+- 工程化遗留项可以暂告一段落。
+- 接下来进入 M5 GraphRAG 前的数据入库/查询设计与首个服务模块。
+
 ## 2026-06-13 SQLite stack 统一启动编排脚本
 
 本轮目标是继续解决上一轮遗留的工程化问题：把 API、SQLite worker、watchdog 和平台指标 scheduler 的分散入口整合成一个统一启动脚本。该能力只做本地进程编排，不新增服务框架，不引入 Redis/Celery/systemd/Docker，也不扩大真实平台写入范围。
