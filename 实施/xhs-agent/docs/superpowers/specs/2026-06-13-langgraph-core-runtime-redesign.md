@@ -1,234 +1,303 @@
-# LangGraph 核心运行时回正设计
+# LangGraph-first 全盘运行时整改设计
 
 ## 背景
 
-当前项目已经具备内容生成、采集、审核、发布、复盘、业务表、API 工作台、SQLite 队列和 worker 等能力，但流程控制权逐步从 LangGraph 转移到了 API、RunStore、SQLite 队列和人工续跑函数中。
+当前项目已经具备内容生成、采集、审核、发布、复盘、运营记忆、业务表、API 工作台、SQLite 队列和 worker 等能力。但流程控制权逐步散落到了 API、RunStore、SQLite 队列、人工审核接口和手写 local executor 中。
 
-这带来两个问题：
+这导致 `engine=langgraph` 虽然存在，却没有真正成为系统主干。典型表现是：
 
-1. `langgraph` 引擎存在，但主要只是一次性 `invoke()` 一张图。
-2. 人工审核后的发布、复盘和写记忆由 API 手动调用节点函数，不是从同一个 LangGraph thread 恢复。
+1. `run_langgraph()` 只是一次性 `invoke()`，没有稳定 thread、checkpoint、interrupt 和 resume。
+2. 人工审核后，API 手动调用发布、creator 发布、复盘、写记忆等节点，绕过了 LangGraph 的图恢复。
+3. 节点级运行事件主要服务 local executor，LangGraph 路径缺少等价观测。
+4. worker 目前是任务执行外壳，但业务流程边界仍由 API 拼接。
+5. RunStore 和业务表承担了过多流程状态职责，而不是只做查询投影和兼容存储。
 
-整改目标不是追求框架纯粹性，而是让最终系统更容易扩展到 GraphRAG、阶段二软广、多个人工决策点、发布状态轮询和运营闭环。
+这次整改的目标不是“让代码看起来用了 LangGraph”，而是把项目改成真正的 LangGraph-first 运行时架构。
 
 ## 总目标
 
-采用“中度回正，分阶段实施”的路线：
+全盘整改后的系统应满足：
 
-- LangGraph 重新成为业务流程主干，负责流程状态、分支、暂停、恢复和后续节点执行。
-- API 保留为提交任务、人工操作、前端展示和平台动作入口。
-- SQLite RunStore、业务表和队列保留为生产基础设施，不再直接拼接业务流程。
-- worker 保留为异步执行外壳，运行的是 LangGraph 主流程，而不是自研流程状态机。
+- LangGraph 是唯一的业务流程主干，负责状态流转、分支、暂停、恢复、发布、复盘、写记忆和错误路径。
+- API 只负责 HTTP 入口、参数校验、人工操作输入、结果查询和前端兼容。
+- worker 只负责 claim 任务、启动或恢复 LangGraph thread、记录 worker 级结果。
+- RunStore 只保存 API 兼容 run record 和前端查询摘要，不再决定流程下一步。
+- 业务表只做 LangGraph 最终状态和关键中间产物的查询投影。
+- `run_local_graph()` 退出主路径，仅保留为兼容测试工具，后续可删除。
+- 默认引擎从“local/langgraph 双轨”收敛为 LangGraph 主轨。
 
-第一轮只做核心回正，不推倒现有 API、worker、RunStore、业务表和前端。
+## 非目标
 
-## 第一阶段范围
+本次全盘整改不引入新的外部技术栈：
 
-第一阶段必须完成：
+- 不引入 Redis、Celery、PostgreSQL 或新的服务进程。
+- 不实现 GraphRAG 的真实向量检索。
+- 不实现阶段二软广、达人匹配、千帆和蒲公英正式接入。
+- 不重做前端视觉设计。
+- 不重写 Spider_XHS 和 creator 底层适配器。
 
-1. `build_langgraph()` 支持可注入 checkpointer。
-2. `run_langgraph()` 使用 `run_id` 作为 LangGraph `thread_id`。
-3. `human_review` 从占位状态节点改为 LangGraph `interrupt()` 暂停点。
-4. API 生成草稿后停在审核点，保存可审核草稿状态。
-5. `approve_run()` 通过同一个 LangGraph thread resume，而不是手动调用 `publish_or_schedule()`、creator 发布、`review_performance()`、`write_operation_memory()`。
-6. `reject_run()` 仍可记录人工驳回，但不触发后续发布节点。
-7. 保持现有工作台和脚本的主要接口兼容。
+这些能力应在 LangGraph-first 主干稳定后再扩展。
 
-第一阶段不做：
+## 核心架构
 
-- 不重写 worker 和 SQLite 队列。
-- 不删除 `run_local_graph()`。
-- 不重构前端工作台。
-- 不引入 Redis、PostgreSQL、Celery 或新的外部服务。
-- 不把所有业务表改成 LangGraph checkpoint 投影。
-- 不实现 GraphRAG、阶段二软广、达人匹配。
-
-## 架构原则
-
-### 流程控制权
-
-业务流程的下一步由 LangGraph 决定。API 可以提交输入、读取结果、传入人工审核结果，但不直接决定“审核后该调哪个节点”。
-
-审核通过后的标准路径是：
+整改后的职责边界如下：
 
 ```text
-human_review interrupt
--> API approve_run 提供审核结果
--> LangGraph resume
--> publish_or_schedule
+API / Workbench
+  -> 创建 run、提交人工审核结果、读取 run record
+
+SQLiteRunQueue / worker
+  -> claim run、调用 LangGraph runtime、处理 worker heartbeat 和重试
+
+LangGraph runtime
+  -> graph thread、checkpoint、interrupt、resume、stream events
+
+Nodes / Routers
+  -> 采集、分析、生成、合规、审核、发布、creator 平台动作、复盘、写记忆
+
+RunStore
+  -> 保存前端可读 run record，是 LangGraph state 的投影
+
+Business tables
+  -> 保存结构化查询投影，不拥有流程控制权
+```
+
+## 主流程设计
+
+### LangGraph 主图
+
+主图应覆盖完整闭环：
+
+```text
+START
+-> load_user_input
+-> check_account_stage
+-> retrieve_graphrag_memory
+-> analyze_topic_and_pain_points
+-> decide_content_strategy
+-> route_content_format
+   -> generate_image_text
+   -> generate_video_script
+-> check_compliance
+-> route_compliance_result
+   -> revise_content_for_compliance
+   -> human_review
+   -> stop_publish
+-> human_review interrupt/resume
+-> route_human_review
+   -> publish_or_schedule
+   -> reject_publish
+-> creator_publish_or_skip
 -> review_performance
 -> write_operation_memory
 -> END
 ```
 
-审核不通过后的标准路径是：
+`creator_publish_or_skip` 成为图内节点。它读取人工审核时传入的 creator 发布选项，决定是否调用 creator 适配器。API 不再直接调用 creator 发布。
+
+`reject_publish` 成为图内节点。人工审核驳回时，图内写入 `publish_status=rejected`、`operation_memory_written=False`、`next_action` 和驳回摘要，然后结束。
+
+### 状态模型
+
+`XHSState` 继续作为图状态合同，但需要补齐运行时字段：
+
+- `run_id`
+- `run_status`
+- `review_action`
+- `review_required`
+- `review_interrupt_payload`
+- `creator_publish_requested`
+- `creator_publish_private`
+- `creator_human_confirmed`
+- `creator_publish_result`
+- `failure_category`
+- `failure_category_label`
+- `node_events`
+
+`run_status` 使用清晰枚举：
+
+- `queued`
+- `running`
+- `waiting_review`
+- `rejected`
+- `published`
+- `failed`
+- `cancelled`
+- `timed_out`
+
+旧的 API `status=success` 仅作为兼容输出使用，内部主状态以 `run_status` 为准。
+
+### checkpointer
+
+LangGraph 必须使用持久 checkpointer。优先使用项目已有 SQLite 数据库文件，不新引入外部服务。
+
+设计要求：
+
+- `thread_id = run_id`
+- 所有 `engine=langgraph` run 必须带 thread_id
+- worker 启动图时写入 checkpoint
+- human interrupt 后 checkpoint 保存等待审核状态
+- approve/reject 通过同一 thread resume
+
+如果当前安装的 LangGraph 版本没有直接可用的 SQLite checkpointer，实施时应先在项目内封装一个 `app/langgraph_runtime.py` 边界，内部可先使用 LangGraph 官方可用 saver；但外部 API 不依赖具体 saver 类型，后续可替换为 SQLite saver。
+
+## API 改造
+
+### 提交 run
+
+`submit_run()` 仍创建 run record 并入队。
+
+`create_run()` 同步执行时也必须走 LangGraph runtime，不再直接使用手写 local executor。
+
+`_run_workflow()` 对默认引擎只调用 LangGraph runtime。`engine=local` 只保留给显式调试用途。
+
+### 审核通过
+
+`approve_run()` 的职责变为：
+
+1. 校验 run 存在且处于 `waiting_review`。
+2. 校验 creator 发布参数。
+3. 构造 resume payload。
+4. 调用 `resume_langgraph(run_id, payload)`。
+5. 将 LangGraph 返回状态保存为 run record。
+
+它不能直接调用：
+
+- `publish_or_schedule()`
+- `creator_platform.publish_private_image_text()`
+- `review_performance()`
+- `write_operation_memory()`
+
+### 审核驳回
+
+`reject_run()` 的职责变为：
+
+1. 校验 run 存在且处于 `waiting_review`。
+2. 构造 reject resume payload。
+3. 调用 `resume_langgraph(run_id, payload)`。
+4. 保存图内 `reject_publish` 生成的最终状态。
+
+驳回也应走 LangGraph resume，而不是 API 自己拼接驳回 state。
+
+### run record
+
+`_run_record()` 继续提供前端兼容结构，但内部必须从 LangGraph state 投影。
+
+推荐映射：
+
+- `record["status"]`: 兼容字段，可保留 `queued/running/success/failed`
+- `record["summary"]["run_status"]`: 新主状态
+- `record["summary"]["publish_status"]`: 发布状态
+- `record["state"]`: LangGraph 最新 state
+- `record["content"]`: 从 state 中投影的草稿内容
+- `record["insights"]`: 从 state 中投影的洞察
+
+## worker 改造
+
+`scripts/run_worker.py` 保留命令行和心跳机制，但执行语义改为“LangGraph runner”：
 
 ```text
-human_review interrupt
--> API reject_run 记录驳回状态
--> 不 resume 发布路径
+claim run
+-> mark RunStore running
+-> start/resume LangGraph thread
+-> 如果 graph interrupt：mark waiting_review，queue job 不再继续占用
+-> 如果 graph END：mark published/rejected/failed
+-> queue mark_succeeded 或 mark_failed
 ```
 
-### 基础设施角色
+等待人工审核不是 worker failure，也不是长期 running。worker 处理到 interrupt 后应释放队列任务，让 run 进入 `waiting_review`。
 
-`RunStore` 继续保存 API 视角的 run record，用于前端列表、详情和兼容旧接口。
+审核通过或驳回时由 API 直接 resume 图；后续如果耗时较长，可再入队一个 resume job，但本次整改优先保持 API 同步 resume，避免扩大队列协议。
 
-LangGraph checkpointer 保存图线程状态，用于真实暂停和恢复。
+## 事件与观测
 
-业务表继续作为查询投影，由 `_save_run()` 后的同步逻辑维护。
+节点级事件统一来自 LangGraph 执行过程，不再只由 local executor 生成。
 
-SQLite 队列和 worker 继续负责异步执行 run，但 worker 不掌握业务流程内部状态。
+设计要求：
 
-### 兼容策略
+- `run_events` 继续作为事件表。
+- LangGraph `stream(..., stream_mode="updates")` 或等价机制记录节点完成事件。
+- interrupt 记录 `node_interrupted`。
+- resume 记录 `node_resumed`。
+- 节点异常记录 `node_failed`。
+- queue 事件继续记录 queue 层动作。
 
-保留 `engine=local`，用于本地调试和现有测试兼容。
+`run_local_graph()` 的 `_run_node()` 事件记录不再作为主路径依据。
 
-`engine=langgraph` 成为默认主路径。新增核心能力优先服务 `engine=langgraph`。
+## local executor 策略
 
-已有内容生成、合规、人审、发布、复盘、写记忆节点尽量复用，避免重写业务逻辑。
+`run_local_graph()` 暂时保留，但地位降级：
 
-## 组件设计
+- 只能由 `engine=local` 显式调用。
+- 不新增功能。
+- 不作为默认工作台或 worker 路径。
+- 测试逐步迁移到 LangGraph runtime 后，可以删除 local executor 测试。
 
-### `app/graph.py`
+## 数据投影
 
-新增或调整：
+RunStore 和业务表都从 LangGraph state 投影，不反向控制图流程。
 
-- `build_langgraph(checkpointer=None)`：编译图时可接收 checkpointer。
-- `build_langgraph_runtime()`：集中创建 LangGraph app 和 checkpointer，避免每次 API 调用散落创建逻辑。
-- `run_langgraph(initial_state, run_id=None)`：如果传入 `run_id`，用 `config={"configurable": {"thread_id": run_id}}` 执行。
-- `resume_langgraph(run_id, resume_value)`：用 `Command(resume=resume_value)` 恢复同一个 thread。
-
-`run_local_graph()` 保留，不参与第一阶段改造。
-
-### `nodes/human_review_node.py`
-
-`human_review()` 在 `engine=langgraph` 主路径中成为暂停点。
-
-推荐行为：
-
-- 高风险内容直接返回审核不通过，不进入 interrupt。
-- 已带明确 `human_approved=True` 的一次性命令行运行可以继续通过，保持已有脚本兼容。
-- 普通未审核草稿调用 `interrupt()`，把标题、正文、合规风险、候选封面、标签等审核所需摘要传给 API。
-- resume 后根据人工输入更新 `human_approved`、`human_feedback`、`publish_status`。
-
-### `app/api.py`
-
-生成阶段：
-
-- `_run_workflow()` 对 `engine=langgraph` 调用新的 `run_langgraph(initial_state, run_id=run_id)`。
-- 如果图在 human interrupt 暂停，run record 状态仍可保存为 `success` 或更精确的 `waiting_review`。第一阶段推荐使用 `success` 兼容现有工作台，同时在 summary/state 中保留 `publish_status=pending`、`human_approved=False`。
-
-审核通过：
-
-- `approve_run()` 加载 run record 后，不再手动调用发布、creator 发布、复盘、写记忆。
-- 对 `engine=langgraph` 的 run，调用 `resume_langgraph(run_id, {"approved": True, "feedback": feedback})`。
-- resume 完成后用返回的最终 state 重新生成 run record 并保存。
-- creator 私密发布如果仍作为 API 审核通过时的显式动作，第一阶段可以保留在 API 层，但它必须被建模为“发布节点后的平台动作补充”，不能替代图内 `publish_or_schedule`、`review_performance`、`write_operation_memory`。
-
-审核驳回：
-
-- `reject_run()` 不 resume 发布路径。
-- 保存 `human_approved=False`、`publish_status=rejected`、`review_action=rejected`、`operation_memory_written=False`。
-
-### `app/run_store.py` 与业务表
-
-第一阶段不改公开接口。
-
-run record 继续保存：
-
-- `request`
-- `summary`
-- `content`
-- `insights`
-- `state`
-- `paths`
-- `error`
-
-后续第二阶段再考虑从 LangGraph stream 或 checkpoint 中投影节点级事件。
-
-### worker 和队列
-
-第一阶段不重写 `SQLiteRunQueue` 和 `scripts/run_worker.py`。
-
-worker 继续 claim run，然后调用 API 层 `_execute_run()`。差异是 `_execute_run()` 内部调用的 `engine=langgraph` 路径会使用 LangGraph thread 和 checkpointer。
-
-## 状态与数据流
-
-### 提交流程
+保存顺序：
 
 ```text
-POST /runs
--> submit_run()
--> RunStore 保存 queued
--> SQLiteRunQueue enqueue
--> worker claim
--> _execute_run()
--> run_langgraph(initial_state, run_id)
--> human_review interrupt 或直接 END
--> RunStore 保存草稿状态
--> 前端展示待审核草稿
+LangGraph state 更新
+-> build run record
+-> RunStore.save(record)
+-> sync_run_business_tables(record)
+-> record run_events
 ```
 
-### 审核通过流程
-
-```text
-POST /runs/{run_id}/approve
--> approve_run()
--> resume_langgraph(run_id, resume_value)
--> LangGraph 从 human_review 后继续
--> publish_or_schedule
--> review_performance
--> write_operation_memory
--> RunStore 保存最终状态
--> 业务表同步
-```
-
-### 审核驳回流程
-
-```text
-POST /runs/{run_id}/reject
--> reject_run()
--> RunStore 保存 rejected 状态
--> 不执行发布、复盘、写记忆
-```
+如果业务表同步失败，不应回滚 LangGraph checkpoint；应保存 audit/error event，并让 run record 保留主结果。
 
 ## 错误处理
 
-- checkpointer 初始化失败时，`engine=langgraph` run 失败并保存错误，不静默回落到 local。
-- resume 找不到 thread 时，`approve_run()` 返回明确错误，提示该 run 不是可恢复的 LangGraph 草稿。
-- resume 后节点失败时，保存 `status=failed`、`failure_category` 和错误摘要。
-- creator 发布失败不应破坏图内本地 markdown 发布与运营记忆写入；它仍作为平台发布补充结果进入 state。
+- checkpointer 初始化失败：LangGraph run 失败，保存明确错误，不回落 local。
+- graph interrupt 后缺 checkpoint：approve/reject 返回“不可恢复的 LangGraph thread”错误。
+- resume payload 缺少审核动作：human_review 节点返回 failed state 或抛出明确错误。
+- creator 发布失败：图继续到复盘和写记忆，但 `creator_publish_status=failed`，错误脱敏后进入 state。
+- 高风险合规：图进入 stop/reject 路径，不允许发布。
+- worker crash：queue heartbeat/watchdog 继续负责超时和重试，但不得重复执行已经进入 `waiting_review` 的 run。
 
 ## 测试策略
 
-第一阶段使用 TDD 增补测试：
+本次整改必须用 TDD 推进，优先新增或重写以下测试：
 
-1. `run_langgraph()` 使用 `run_id` 作为 thread_id，并可在 human_review 暂停。
-2. `approve_run()` 对 LangGraph run 调用 resume，而不是直接调用后续节点函数。
-3. 审核通过后最终 state 包含 `publish_status=success`、`operation_memory_written=True`。
-4. 审核驳回不触发发布和写记忆。
-5. `engine=local` 现有行为不变。
-6. 现有 creator publish API 测试继续通过，必要时只调整断言以匹配 LangGraph resume 后的 state。
+1. LangGraph runtime 使用 `run_id` 作为 `thread_id`。
+2. 未审核草稿在 `human_review` 处 interrupt，并投影为 `run_status=waiting_review`。
+3. `approve_run()` 通过 LangGraph resume 继续到发布、creator 节点、复盘、写记忆。
+4. `approve_run()` 不直接调用发布、creator、复盘、写记忆函数。
+5. `reject_run()` 通过 LangGraph resume 进入图内驳回节点。
+6. worker 遇到 interrupt 后保存 `waiting_review`，不把 run 标成 failed。
+7. LangGraph stream 产生节点级 run events。
+8. 业务表同步使用 LangGraph 最终 state 投影。
+9. `engine=local` 仍可显式运行，但默认 API 和 worker 使用 LangGraph。
+10. creator 发布成功、失败、参数缺失、视频格式限制等旧测试继续成立，只是触发点从 API 层迁移到图内节点。
 
 ## 验收标准
 
-第一阶段完成后，应能证明：
+全盘整改完成后，应能证明：
 
-- 默认 `engine=langgraph` 的人工审核通过路径由 LangGraph resume 触发。
-- API 不再手动拼接发布、复盘、写记忆主链路。
-- run_id 与 LangGraph thread_id 对齐。
-- 现有 API 工作台仍能提交、查看、审核、驳回 run。
-- 全量测试通过，或明确列出仍未通过的测试和原因。
+- 默认工作台提交使用 LangGraph runtime。
+- 人审通过和驳回都通过同一个 LangGraph thread resume。
+- API 不再手动拼接发布、creator 发布、复盘、写记忆主链路。
+- worker 不再长期占用等待审核的 run。
+- RunStore 和业务表是图 state 的投影。
+- 节点级事件覆盖 LangGraph 主路径。
+- `run_local_graph()` 不再是默认路径。
+- 全量测试通过，或明确列出无法通过的外部依赖测试及原因。
 
-## 后续阶段
+## 实施顺序建议
 
-第二阶段：
+虽然这是全盘改造，但实施仍应按依赖顺序推进：
 
-- 从 LangGraph stream/update 记录节点级事件。
-- 减少 `run_local_graph()` 和 `build_langgraph()` 双轨差异。
-- 将 run status 从 `success + pending` 逐步细分为 `waiting_review`、`approved`、`rejected`、`published`。
+1. 建立 LangGraph runtime 边界和测试。
+2. 改造 human_review interrupt/resume。
+3. 将 approve/reject 迁移到 graph resume。
+4. 将 creator 发布迁移为图内节点。
+5. 改造 run status 和 RunStore 投影。
+6. 改造 worker 对 interrupt 的处理。
+7. 将节点级事件迁移到 LangGraph stream。
+8. 收敛默认 engine 和 local executor 兼容策略。
+9. 跑全量测试和 smoke 验证。
 
-第三阶段：
-
-- 评估是否废弃手写 local executor。
-- 将更多人工决策点、发布状态轮询、GraphRAG 召回和阶段二软广分支纳入 LangGraph 主图。
+这个顺序不是缩小整改范围，而是把全盘改造拆成可运行、可验证的执行批次。
