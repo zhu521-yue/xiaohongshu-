@@ -1,5 +1,65 @@
 # 当前工程进度
 
+## 2026-06-13 LangGraph-first 真实私密发布端到端复验
+
+本轮目标是在只读闭环复验通过后，执行一条低风险真实写入复验，确认 LangGraph-first 主路径能完成：`waiting_review -> 绑定真实图片 -> creator 私密发布 -> 作品列表只读同步 -> /performance 回填`。
+
+执行环境：
+- 启动专用本地 API：`http://127.0.0.1:8028`，执行结束后已停止进程。
+- 使用隔离 SQLite DB：`data/langgraph_private_publish_20260613.sqlite3`。
+- `COLLECTOR_MODE=mock`，`LLM_MODEL_NAME=mock`，避免额外真实采集和真实 LLM 干扰。
+- `CREATOR_MODE=spider_xhs`，真实写入仅发生在 creator 私密发布步骤。
+- 启用 SQLite run store、SQLite operation memory、foundation business tables。
+
+执行结果：
+- 平台状态预检通过：
+  - `collector_runtime.ok=true`
+  - `creator_runtime.ok=true`
+  - `creator_publish_guardrail.allowed=true`
+  - 发布前隔离 DB 内日计数 `0/3`
+- 提交 LangGraph run：
+  - `run_id=run_877b49f35f98`
+  - `run_status=waiting_review`
+  - `content_format=image_text`
+  - `content_type=avoid_mistakes`
+  - `compliance_risk_level=low`
+- 绑定本地真实图片素材成功：
+  - `creator_images_count=1`
+  - 绑定文件：`data/creator_assets/run_877b49f35f98/01_langgraph_private_publish_cover.png`
+- 审核通过并触发真实 creator 私密发布成功：
+  - `creator_publish_status=success`
+  - `creator_publish_mode=spider_xhs`
+  - `creator_note_id=6a2d186a000000003503829c`
+  - `operation_record_id=op_f680d04a3e7d`
+- 只读作品状态等待成功：
+  - `status=synced`
+  - 标题：`小红书新手选题避坑方法先别急着判断，这几个坑要避开`
+  - `visibility_label=仅自己可见`
+  - `attempts=1`
+  - 平台指标快照：曝光、点赞、收藏、评论均为 0。
+- `/performance` 回填成功：
+  - `record_id=op_f680d04a3e7d`
+  - `status=performance_recorded`
+  - `performance_score=0`
+  - `business_sync.status=success`
+  - `performance_records=1`
+- 收口读取确认：
+  - run 最终 `summary.run_status=published`
+  - `publish_status=success`
+  - `human_approved=true`
+  - 业务表计数包含 `creator_assets=1`、`creator_notes=1`、`performance_records=1`、`audit_events=3`。
+  - 发布后隔离 DB 内 guardrail 计数为 `1/3`。
+
+当前限制：
+- 本次仍是私密图文，不是公开发布、视频发布或定时发布。
+- 本次使用 mock 采集和 mock LLM，验证重点是 LangGraph-first 审核恢复、图片绑定、真实 creator 私密发布、只读状态同步和表现回填链路。
+- 平台指标为 0 是当前快照结果，不代表回填链路失败。
+- 生成的 SQLite DB、图片素材和 Markdown 草稿均为本地忽略文件，不进入 Git。
+
+下一步建议：
+- 把本次复验结果作为 M4 私密图文真实主链稳定性的最新基线。
+- 后续主线转向平台指标自动抓取、公开图文/视频/定时发布评估，或进入 M5 GraphRAG 前的查询/入库准备。
+
 ## 2026-06-13 项目记忆收口与真实闭环预检
 
 本轮目标是在列出未完成任务后，开始按优先级收口：先校准项目记忆，再准备真实 Cookie 小流量复验前的只读闭环检查。
