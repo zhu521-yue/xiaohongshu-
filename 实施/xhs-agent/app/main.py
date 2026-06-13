@@ -18,7 +18,7 @@ def build_parser() -> ArgumentParser:
     )
     parser.add_argument("--goal", default="生成一篇冷启动阶段的知识分享内容", help="用户目标")
     parser.add_argument("--approve", action="store_true", help="模拟人工审核通过")
-    parser.add_argument("--engine",choices=("local","langgraph"),default="local",help="流程运行引擎")
+    parser.add_argument("--engine",choices=("local","langgraph"),default="langgraph",help="流程运行引擎")
     parser.add_argument("--collect-limit", type=int, default=5, help="采集笔记数量上限")
     parser.add_argument("--save-collection", action="store_true", help="保存本次采集结果")
     return parser
