@@ -8,6 +8,7 @@ from app.state import XHSState
 from llm.client import LLMError, get_llm_client
 from llm.prompts import build_json_prompt
 from nodes.compliance_node import ABSOLUTE_WORDS, AVOID_PROMISE_WORDS, SAFETY_NOTE, SENSITIVE_TOPICS
+from nodes.memory_context import build_generation_memory_context
 from nodes.pattern_utils import structure_profile, successful_patterns
 
 
@@ -246,6 +247,7 @@ def _build_image_text_prompt(
         "comment_insights": comment_insights[:5],
         "pain_points": pain_points[:5],
         "successful_patterns": _compact_successful_patterns(patterns),
+        "memory_context": build_generation_memory_context(state),
         "preferred_structure": _compact_profile(profile),
         "forbidden_words": ABSOLUTE_WORDS,
         "avoid_promise_words": AVOID_PROMISE_WORDS,
