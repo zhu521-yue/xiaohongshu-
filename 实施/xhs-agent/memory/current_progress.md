@@ -1,5 +1,42 @@
 # 当前工程进度
 
+## 2026-06-13 平台指标后台同步调度器初版
+
+本轮目标是在平台指标批量同步和工作台入口之后，继续收口 M4 的低风险遗留项：补一个模块化的后台同步调度入口。该能力只复用已有 creator 作品列表只读同步链路，不触发发布、编辑、删除、公开或平台定时发布。
+
+已完成：
+- 新增 `app/creator_performance_scheduler.py`：
+  - 负责多轮调度、轮间等待、连续失败停手和汇总结果。
+  - 每一轮只调用注入的批量同步函数，默认对接 `api.sync_creator_note_performance_batch()`。
+  - 同步服务仍保留在 `app/creator_performance_sync.py`，调度器不直接耦合 HTTP、SQLite 或平台实现。
+  - 支持 `max_rounds` 限制轮数，支持 `max_consecutive_failed_rounds` 连续失败阈值，避免长期异常时无限撞平台。
+- 新增 CLI：
+  - `scripts/run_creator_performance_scheduler.py`
+  - 支持多个 `--creator-note-id` / `--run-id`。
+  - 支持 `--schedule-interval-seconds`、`--max-rounds`、`--max-consecutive-failed-rounds`。
+  - 支持 `--mode mock|spider_xhs`、`--wait`、`--limit`、`--attempts`、`--status-interval-seconds` 和 `--notes`。
+
+验证结果：
+- TDD RED：新增调度器服务和 CLI 测试先因模块/脚本缺失失败。
+- 定点 RED->GREEN：`tests/test_creator_performance_scheduler.py tests/test_run_creator_performance_scheduler_script.py` -> `6 passed`。
+- 相关回归通过：调度器、同步服务、同步脚本和平台状态 API 组合 -> `24 passed`。
+- Python 编译检查通过：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app scripts tests`。
+- 全量测试通过：`D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `269 passed`。
+
+当前效果：
+- 平台指标同步现在具备三层入口：工作台按钮、手动/短循环脚本、可长期运行的调度器脚本。
+- 调度器具备连续失败停手，适合作为 Windows 计划任务、后台进程或后续 worker 编排的基础入口。
+- 该能力仍保持真实平台只读，不扩大到公开发布、视频发布或平台定时发布。
+
+当前限制：
+- 调度器是脚本级常驻入口，不是完整任务编排平台；还没有统一 API/worker/watchdog/scheduler 的一键编排脚本。
+- 没有接入告警通知，只在结构化结果里汇总失败轮次。
+- 完整 BI、时间序列分析、M5 GraphRAG、M6 软广/达人仍未开始。
+
+下一步建议：
+- 如果继续收口工程化，可做统一启动编排脚本，把 API、SQLite worker、watchdog 和 performance scheduler 组合起来。
+- 如果转主线，优先进入 M5 GraphRAG 前的数据入库/查询设计。
+
 ## 2026-06-13 平台指标批量同步、趋势摘要与工作台入口
 
 本轮目标是在平台指标手动触发初版之后，继续解决遗留问题：补齐批量同步、安全的脚本循环同步、表现趋势摘要和工作台一键同步入口。真实公开发布、视频发布、定时发布、M5 GraphRAG、M6 软广/达人属于高风险或大模块，本轮未混入。

@@ -1465,5 +1465,38 @@ Worker service
 
 - “平台指标批量同步”和“工作台同步入口”从待办调整为初版完成。
 - “趋势分析”从未完成调整为轻量摘要完成；完整 BI 和时间序列分析仍可后续扩展。
-- “后台常驻定时调度”仍未完成，需要单独设计 worker/队列/告警策略。
+- “后台常驻定时调度”已推进到脚本级调度器初版；统一进程编排和告警策略仍未完成。
 - 公开图文、视频、定时发布、GraphRAG、阶段二软广/达人能力继续后置。
+
+## 33. 2026-06-13 平台指标后台同步调度器初版完成
+
+本次主线继续收口 M4 指标同步遗留项，把“手动批量同步/短循环脚本”扩展为可长期运行的调度器入口。
+
+已完成：
+
+- 新增 `app/creator_performance_scheduler.py`：
+  - 负责调度轮次、轮间等待、连续失败停手和结果汇总。
+  - 每轮通过依赖注入调用批量同步函数，默认由 CLI 对接 `api.sync_creator_note_performance_batch()`。
+  - 支持 `max_rounds` 和 `max_consecutive_failed_rounds`，避免异常时无限重复访问平台。
+- 新增 `scripts/run_creator_performance_scheduler.py`：
+  - 支持多个 `--creator-note-id` / `--run-id`。
+  - 支持 `--schedule-interval-seconds`、`--max-rounds`、`--max-consecutive-failed-rounds`。
+  - 支持 creator mode、等待参数和 operator notes。
+- 新增测试：
+  - `tests/test_creator_performance_scheduler.py`
+  - `tests/test_run_creator_performance_scheduler_script.py`
+
+验证补充：
+
+- TDD RED：调度器模块和脚本缺失时新增测试先失败。
+- 定点新增测试通过：`6 passed`。
+- 相关回归通过：`24 passed`。
+- Python 编译检查通过：`compileall app scripts tests`。
+- 全量测试通过：`269 passed`。
+
+路线图影响：
+
+- “后台常驻定时调度”从未完成调整为脚本级调度器初版完成。
+- 当前调度器仍不负责进程守护、系统级定时、告警通知或统一编排。
+- 真实平台边界仍是只读作品列表指标同步，不触发发布、编辑、删除、公开或平台定时发布。
+- 下一步工程化建议是统一启动编排脚本，或转入 M5 GraphRAG 数据入库/查询设计。
