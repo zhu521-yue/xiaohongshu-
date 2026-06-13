@@ -35,6 +35,7 @@
 - 最终新增定点组合：`tests/test_analysis_report_config.py tests/test_data_quality_gate.py tests/test_operation_memory_config.py tests/test_production_lite_deploy_check.py tests/test_sqlite_backup_restore_scripts.py` -> `10 passed`。
 - 最终相关回归组合：`tests/test_analysis_report.py tests/test_analysis_report_integration.py tests/test_check_collector_output.py tests/test_operation_store_sqlite.py tests/test_memory_graph.py tests/test_memory_node.py tests/test_business_store.py tests/test_api_business_table_sync.py` -> `32 passed`。
 - Python 编译检查通过：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes memory platforms scripts tests`。
+- 全量测试通过：`D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `289 passed`。
 - 当前本地 `.env` 下运行 `scripts/check_production_lite_deploy.py --backup-dir data/backups` 按预期返回 `ok=false`：API token 缺失、run store/queue/memory 仍是开发默认、业务表写入未启用；这说明当前环境还不是 production-lite 部署配置。
 
 当前效果：
