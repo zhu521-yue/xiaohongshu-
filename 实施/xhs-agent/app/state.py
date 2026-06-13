@@ -8,6 +8,9 @@ from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 
 class XHSState(TypedDict, total=False):
+    # Runtime
+    run_id: str
+
     # 用户输入
     user_topic: str
     target_user: str

@@ -186,7 +186,7 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
-def build_langgraph():
+def build_langgraph(*, checkpointer=None):
     from langgraph.graph import END, START, StateGraph
 
     graph = StateGraph(XHSState)
@@ -250,7 +250,7 @@ def build_langgraph():
     graph.add_edge("review_performance", "write_operation_memory")
     graph.add_edge("write_operation_memory", END)
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)
 
 
 def run_langgraph(initial_state: XHSState) -> XHSState:
