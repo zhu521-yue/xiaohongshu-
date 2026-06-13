@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+import time
 from pathlib import Path
 
 from app.run_queue import SQLiteRunQueue
@@ -33,6 +35,18 @@ class HeartbeatQueue(FakeQueue):
 
     def heartbeat(self, run_id: str, worker_id: str) -> bool:
         self.heartbeats.append((run_id, worker_id))
+        return True
+
+
+class PeriodicHeartbeatQueue(HeartbeatQueue):
+    def __init__(self, run_id: str | None) -> None:
+        super().__init__(run_id)
+        self.second_heartbeat_seen = threading.Event()
+
+    def heartbeat(self, run_id: str, worker_id: str) -> bool:
+        super().heartbeat(run_id, worker_id)
+        if len(self.heartbeats) >= 2:
+            self.second_heartbeat_seen.set()
         return True
 
 
@@ -72,6 +86,30 @@ def test_run_once_records_heartbeat_after_claim() -> None:
 
     assert did_work is True
     assert queue.heartbeats == [("run_1", "worker-a")]
+
+
+def test_run_once_records_periodic_heartbeat_while_job_runs() -> None:
+    queue = PeriodicHeartbeatQueue("run_1")
+    records = {"run_1": {"status": "success", "error": None}}
+
+    def execute_run(run_id: str) -> None:
+        queue.second_heartbeat_seen.wait(timeout=1.0)
+
+    did_work = run_worker.run_once(
+        queue=queue,
+        worker_id="worker-a",
+        execute_run=execute_run,
+        load_run=lambda run_id: records[run_id],
+        heartbeat_interval_seconds=0.01,
+    )
+
+    heartbeat_count_after_return = len(queue.heartbeats)
+    time.sleep(0.03)
+
+    assert did_work is True
+    assert queue.second_heartbeat_seen.is_set()
+    assert heartbeat_count_after_return >= 2
+    assert len(queue.heartbeats) == heartbeat_count_after_return
 
 
 def test_run_worker_once_marks_failed_run_status(monkeypatch) -> None:
@@ -203,3 +241,27 @@ def test_run_watchdog_once_marks_stale_jobs() -> None:
     assert queue.watchdog_kwargs is not None
     assert queue.watchdog_kwargs["max_seconds"] == 60
     assert queue.watchdog_kwargs["worker_id"] == "watchdog"
+
+
+def test_run_watchdog_loop_scans_repeatedly() -> None:
+    class LoopQueue(FakeQueue):
+        def __init__(self) -> None:
+            super().__init__(None)
+            self.scan_count = 0
+
+        def mark_stale_running_as_timed_out(self, **kwargs):
+            self.scan_count += 1
+            return []
+
+    queue = LoopQueue()
+
+    scans = run_worker.run_watchdog_loop(
+        queue,
+        max_seconds=60,
+        worker_id="watchdog",
+        poll_seconds=0,
+        scan_limit=2,
+    )
+
+    assert scans == 2
+    assert queue.scan_count == 2

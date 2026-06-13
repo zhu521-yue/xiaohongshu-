@@ -2171,3 +2171,54 @@
 - 增加常驻 watchdog 或启动模板中的定期调用策略。
 - 继续补运行配置组合检查，提示 SQLite run store、queue、business tables、events 和 watchdog 是否完整启用。
 - 后续再补 `/performance` 到 `performance_records` 的反向同步。
+
+## 2026-06-13 worker 周期心跳与 watchdog loop
+
+本轮目标是在上一轮 worker 心跳/watchdog 初版基础上，补齐长任务执行期间的周期 heartbeat 和常驻 watchdog 扫描入口，让 SQLite worker 工程化能力更接近长期运行形态。
+
+已完成：
+- 新增设计文档：
+  - `docs/superpowers/specs/2026-06-13-worker-periodic-heartbeat-watchdog-loop-design.md`
+- 新增实施计划：
+  - `docs/superpowers/plans/2026-06-13-worker-periodic-heartbeat-watchdog-loop.md`
+- `scripts/run_worker.py` 的 `run_once()` 新增 `heartbeat_interval_seconds`：
+  - 领取任务后仍立即写一次 heartbeat。
+  - 当 interval 大于 0 时，启动 daemon 心跳线程。
+  - 任务结束或异常后停止心跳线程。
+  - 心跳异常只记录 warning，不改变任务主流程。
+- 新增 `run_watchdog_loop()`：
+  - 循环调用 `run_watchdog_once()`。
+  - 支持测试用 `scan_limit`。
+  - CLI 新增 `--watchdog-loop`。
+- 配置新增：
+  - `XHS_AGENT_QUEUE_HEARTBEAT_INTERVAL_SECONDS=30`
+  - `Settings.queue_heartbeat_interval_seconds`
+- `scripts/check_runtime_config.py --profile sqlite-worker` 增强：
+  - 检查 heartbeat interval 为正数。
+  - 检查 heartbeat interval 小于 heartbeat timeout。
+  - 提示 queue event timeline 是否完整启用。
+- `scripts/start_sqlite_worker.ps1` 增强：
+  - 新增 `HeartbeatIntervalSeconds`。
+  - 新增 `HeartbeatTimeoutSeconds`。
+  - 新增 `-Watchdog` 模式，启动 `run_worker.py --watchdog-loop`。
+
+验证结果：
+- TDD RED：新增测试先因 `run_once()` 不支持周期心跳、`run_watchdog_loop()` 缺失、配置检查缺 interval/events 组合、启动模板缺 watchdog loop 而失败。
+- 定点 RED->GREEN 通过：`6 passed`。
+- 聚焦回归通过：`25 passed`。
+
+当前效果：
+- 长任务执行期间 worker 可以持续刷新 `heartbeat_at`。
+- watchdog 可以作为常驻进程持续扫描 stale running job。
+- SQLite worker 启动模板可以一键启动普通 worker 或 watchdog。
+- 配置检查能更早发现 interval/timeout 配置不合理和事件时间线未启用。
+
+当前限制：
+- 周期 heartbeat 仍是 worker 进程内 daemon 线程，不是跨进程健康探针。
+- watchdog 仍只标记本地 run/queue/event 状态，不强杀线程，也不撤销真实平台请求。
+- 启动模板提供入口，但还没有把 API、worker、watchdog 组合成统一一键编排脚本。
+
+下一步建议：
+- 增加完整运行配置组合检查或 smoke 脚本，一次性验证 SQLite API、worker、watchdog、business tables、events 是否联通。
+- 继续补 `/performance` 到 `performance_records` 的反向同步，收口表现数据闭环。
+- 在下一次真实端到端小流量验证前，先使用 mock + SQLite + watchdog 模式跑一条任务，确认事件时间线完整。

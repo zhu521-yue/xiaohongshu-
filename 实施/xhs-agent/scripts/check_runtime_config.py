@@ -99,17 +99,8 @@ def _check_sqlite_worker_profile() -> list[CheckResult]:
         else:
             results.append(CheckResult("FAIL", f"{label} must be {expected_value}, got {actual}"))
 
-    if settings.queue_heartbeat_timeout_seconds > 0:
-        results.append(
-            CheckResult(
-                "PASS",
-                f"queue heartbeat timeout seconds: {settings.queue_heartbeat_timeout_seconds}",
-            )
-        )
-    else:
-        results.append(
-            CheckResult("FAIL", "queue heartbeat timeout seconds must be positive")
-        )
+    results.extend(_queue_heartbeat_checks(settings))
+    results.append(_queue_event_timeline_check(settings))
 
     results.extend(
         [
@@ -137,6 +128,42 @@ def _business_table_check(settings) -> CheckResult:
     if settings.run_store_backend != "sqlite":
         return CheckResult("WARN", "business table writes require sqlite run store")
     return CheckResult("PASS", "business table writes enabled for sqlite run store")
+
+
+def _queue_heartbeat_checks(settings) -> list[CheckResult]:
+    results: list[CheckResult] = []
+    interval = settings.queue_heartbeat_interval_seconds
+    timeout = settings.queue_heartbeat_timeout_seconds
+    if interval > 0:
+        results.append(CheckResult("PASS", f"queue heartbeat interval seconds: {interval:g}"))
+    else:
+        results.append(CheckResult("FAIL", "queue heartbeat interval seconds must be positive"))
+
+    if timeout > 0:
+        results.append(CheckResult("PASS", f"queue heartbeat timeout seconds: {timeout}"))
+    else:
+        results.append(CheckResult("FAIL", "queue heartbeat timeout seconds must be positive"))
+
+    if interval > 0 and timeout > 0:
+        if interval < timeout:
+            results.append(CheckResult("PASS", "queue heartbeat interval is lower than timeout"))
+        else:
+            results.append(CheckResult("FAIL", "queue heartbeat interval must be lower than timeout"))
+    return results
+
+
+def _queue_event_timeline_check(settings) -> CheckResult:
+    if (
+        settings.run_store_backend == "sqlite"
+        and settings.run_queue_backend == "sqlite"
+        and settings.db_schema == "foundation"
+        and settings.business_tables_enabled
+    ):
+        return CheckResult("PASS", "queue event timeline enabled")
+    return CheckResult(
+        "WARN",
+        "queue event timeline disabled; watchdog still updates queue state but run_events may be incomplete",
+    )
 
 
 def _check_production_lite_profile() -> list[CheckResult]:

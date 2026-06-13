@@ -32,3 +32,12 @@ def test_sqlite_templates_share_one_db_path() -> None:
         assert "XHS_AGENT_QUEUE_DB_PATH" in script
         assert "XHS_AGENT_MEMORY_DB_PATH" in script
         assert "sqlite-worker" in script
+
+
+def test_sqlite_worker_template_supports_watchdog_and_heartbeat_config() -> None:
+    script = read_script("start_sqlite_worker.ps1")
+
+    assert "Watchdog" in script
+    assert "XHS_AGENT_QUEUE_HEARTBEAT_INTERVAL_SECONDS" in script
+    assert "XHS_AGENT_QUEUE_HEARTBEAT_TIMEOUT_SECONDS" in script
+    assert "--watchdog-loop" in script

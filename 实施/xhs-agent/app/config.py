@@ -33,6 +33,7 @@ class Settings:
     queue_poll_seconds: float
     queue_max_attempts: int
     queue_lock_timeout_seconds: int
+    queue_heartbeat_interval_seconds: float
     queue_heartbeat_timeout_seconds: int
     worker_id: str | None
     memory_store_backend: str
@@ -110,6 +111,7 @@ def load_settings() -> Settings:
         queue_poll_seconds=_env_float("XHS_AGENT_QUEUE_POLL_SECONDS", 1.0),
         queue_max_attempts=_env_int("XHS_AGENT_QUEUE_MAX_ATTEMPTS", 3),
         queue_lock_timeout_seconds=_env_int("XHS_AGENT_QUEUE_LOCK_TIMEOUT_SECONDS", 900),
+        queue_heartbeat_interval_seconds=_env_float("XHS_AGENT_QUEUE_HEARTBEAT_INTERVAL_SECONDS", 30.0),
         queue_heartbeat_timeout_seconds=_env_int("XHS_AGENT_QUEUE_HEARTBEAT_TIMEOUT_SECONDS", 1800),
         worker_id=os.getenv("XHS_AGENT_WORKER_ID"),
         memory_store_backend=os.getenv("XHS_AGENT_MEMORY_STORE", "json").strip().lower() or "json",

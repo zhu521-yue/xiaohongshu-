@@ -1215,3 +1215,35 @@ Worker service
 - 当前 worker 只在领取任务后写一次 heartbeat，周期心跳线程和常驻 watchdog 仍是后续增强。
 - 下一步建议补 worker 周期心跳、watchdog 常驻/启动模板集成，以及更完整的运行配置组合检查。
 - `/performance` 到 `performance_records` 的反向同步仍未完成，可作为表现链路下一条主线。
+
+## 26. 2026-06-13 worker 周期心跳与 watchdog loop 完成
+
+本次主线把上一轮 worker heartbeat/watchdog 初版继续推进到可长期运行的基础形态：
+
+- `run_once()` 支持 `heartbeat_interval_seconds`，任务执行期间会通过 daemon 线程周期刷新 heartbeat。
+- 心跳线程在任务结束或异常后停止，心跳写入失败只记录 warning，不影响任务主流程。
+- 新增 `run_watchdog_loop()`，可循环执行 watchdog 扫描。
+- `scripts/run_worker.py` CLI 新增 `--watchdog-loop`。
+- 配置新增 `XHS_AGENT_QUEUE_HEARTBEAT_INTERVAL_SECONDS`，默认 30 秒。
+- `scripts/check_runtime_config.py --profile sqlite-worker` 现在会检查：
+  - heartbeat interval 为正数。
+  - heartbeat timeout 为正数。
+  - heartbeat interval 小于 timeout。
+  - queue event timeline 是否完整启用。
+- `scripts/start_sqlite_worker.ps1` 新增 heartbeat interval、heartbeat timeout 和 `-Watchdog` 模式。
+- 新增设计和计划文档：
+  - `docs/superpowers/specs/2026-06-13-worker-periodic-heartbeat-watchdog-loop-design.md`
+  - `docs/superpowers/plans/2026-06-13-worker-periodic-heartbeat-watchdog-loop.md`
+
+验证补充：
+
+- TDD RED：新增测试先因周期心跳、watchdog loop、配置检查和启动模板能力缺失失败。
+- 定点 RED->GREEN 通过：`6 passed`。
+- 聚焦回归通过：`25 passed`。
+
+路线图影响：
+
+- “worker 周期心跳”从待办调整为完成。
+- “watchdog 常驻/启动模板集成”从待办调整为初版完成。
+- 当前仍不强杀运行线程，不撤销真实平台请求；这是符合平台安全边界的本地状态治理。
+- 下一步建议做完整运行配置组合检查或 mock SQLite 端到端 smoke，再进入 `/performance` 到 `performance_records` 的反向同步。

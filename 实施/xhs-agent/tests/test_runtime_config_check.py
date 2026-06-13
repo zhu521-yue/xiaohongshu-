@@ -42,6 +42,8 @@ def test_sqlite_worker_profile_checks_sqlite_backends(tmp_path: Path, monkeypatc
     monkeypatch.setenv("XHS_AGENT_MEMORY_STORE", "sqlite")
     monkeypatch.setenv("XHS_AGENT_MEMORY_DB_PATH", str(db_path))
     monkeypatch.setenv("XHS_AGENT_BUSINESS_TABLES_ENABLED", "true")
+    monkeypatch.setenv("XHS_AGENT_QUEUE_HEARTBEAT_INTERVAL_SECONDS", "30")
+    monkeypatch.setenv("XHS_AGENT_QUEUE_HEARTBEAT_TIMEOUT_SECONDS", "1800")
 
     results = check_profile("sqlite-worker")
 
@@ -50,6 +52,14 @@ def test_sqlite_worker_profile_checks_sqlite_backends(tmp_path: Path, monkeypatc
     assert any(result.level == "PASS" and "business table writes enabled" in result.message for result in results)
     assert any(
         result.level == "PASS" and "queue heartbeat timeout seconds" in result.message
+        for result in results
+    )
+    assert any(
+        result.level == "PASS" and "queue heartbeat interval seconds: 30" in result.message
+        for result in results
+    )
+    assert any(
+        result.level == "PASS" and "queue event timeline enabled" in result.message
         for result in results
     )
 
@@ -72,6 +82,73 @@ def test_sqlite_worker_profile_fails_when_heartbeat_timeout_disabled(
 
     assert any(
         result.level == "FAIL" and "queue heartbeat timeout seconds must be positive" in result.message
+        for result in results
+    )
+
+
+def test_sqlite_worker_profile_fails_when_heartbeat_interval_disabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "xhs_agent.sqlite3"
+    monkeypatch.setenv("XHS_AGENT_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("XHS_AGENT_RUN_STORE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_RUN_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_RUN_QUEUE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_QUEUE_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_MEMORY_STORE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_MEMORY_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_QUEUE_HEARTBEAT_INTERVAL_SECONDS", "0")
+
+    results = check_profile("sqlite-worker")
+
+    assert any(
+        result.level == "FAIL" and "queue heartbeat interval seconds must be positive" in result.message
+        for result in results
+    )
+
+
+def test_sqlite_worker_profile_fails_when_heartbeat_interval_exceeds_timeout(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "xhs_agent.sqlite3"
+    monkeypatch.setenv("XHS_AGENT_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("XHS_AGENT_RUN_STORE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_RUN_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_RUN_QUEUE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_QUEUE_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_MEMORY_STORE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_MEMORY_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_QUEUE_HEARTBEAT_INTERVAL_SECONDS", "60")
+    monkeypatch.setenv("XHS_AGENT_QUEUE_HEARTBEAT_TIMEOUT_SECONDS", "60")
+
+    results = check_profile("sqlite-worker")
+
+    assert any(
+        result.level == "FAIL" and "queue heartbeat interval must be lower than timeout" in result.message
+        for result in results
+    )
+
+
+def test_sqlite_worker_profile_warns_when_queue_events_timeline_disabled(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    db_path = tmp_path / "xhs_agent.sqlite3"
+    monkeypatch.setenv("XHS_AGENT_LOG_DIR", str(tmp_path / "logs"))
+    monkeypatch.setenv("XHS_AGENT_RUN_STORE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_RUN_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_RUN_QUEUE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_QUEUE_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_MEMORY_STORE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_MEMORY_DB_PATH", str(db_path))
+    monkeypatch.setenv("XHS_AGENT_BUSINESS_TABLES_ENABLED", "false")
+
+    results = check_profile("sqlite-worker")
+
+    assert any(
+        result.level == "WARN" and "queue event timeline disabled" in result.message
         for result in results
     )
 
