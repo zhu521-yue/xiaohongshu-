@@ -24,6 +24,9 @@ node_modules/
 *.backup_*
 *.backup
 
+# Git worktrees
+.worktrees/
+
 # Output & Data
 output/
 outputs/
