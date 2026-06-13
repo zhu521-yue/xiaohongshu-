@@ -2,6 +2,7 @@
 
 from app.rules import load_strategy_rules
 from app.state import XHSState
+from nodes.memory_context import recommended_memory_content_type
 
 
 _STRATEGY_RULES = load_strategy_rules()
@@ -53,6 +54,10 @@ def _choose_content_type(state: XHSState) -> str:
 
     if any(keyword in text for keyword in STEP_TUTORIAL_KEYWORDS):
         return "step_tutorial"
+
+    memory_content_type = recommended_memory_content_type(state)
+    if memory_content_type:
+        return memory_content_type
 
     successful_patterns = state.get("successful_patterns") or []
     if isinstance(successful_patterns, list):
