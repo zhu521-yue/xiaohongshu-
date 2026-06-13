@@ -24,16 +24,16 @@
   - `business_sync.status=success`，业务表快照包含 `performance_records=1`。
 
 当前阻塞：
-- 沙箱网络代理指向 `127.0.0.1:9`，导致 creator 作品列表只读请求无法访问真实平台，`platform_note_found=false`。
-- 已按权限规则申请非沙箱网络重跑只读检查，但自动审批未通过；本轮没有绕过权限继续访问真实平台。
+- 沙箱网络代理指向 `127.0.0.1:9`，导致第一次 creator 作品列表只读请求无法访问真实平台，`platform_note_found=false`。
+- 用户明确授权非沙箱网络后，已重跑同一条只读检查，结果为 `ok=true`、`platform_note_found=true`。
 
 当前影响：
-- 本地表现闭环工具链可用，但真实 creator 作品列表只读匹配尚未完成最新复验。
+- 本地表现闭环工具链可用，真实 creator 作品列表只读匹配也已完成最新复验。
 - 生成的临时 SQLite 文件位于 `data/` 下，并被 `.gitignore` 忽略，不会进入版本提交。
 
 下一步建议：
-- 需要用户明确允许非沙箱网络后，再重跑同一条只读闭环检查，确认 `platform_note_found=true`。
-- 只读闭环确认后，再进入 LangGraph-first 小流量端到端复验：`waiting_review -> 绑定真实图片 -> creator 私密发布 -> 作品列表只读同步 -> /performance 回填`。
+- 下一步进入 LangGraph-first 小流量端到端复验：`waiting_review -> 绑定真实图片 -> creator 私密发布 -> 作品列表只读同步 -> /performance 回填`。
+- 该步骤会触发真实 creator 私密发布，执行前需要单独确认写入平台权限。
 
 ## 2026-06-11 creator 发布状态只读同步
 
