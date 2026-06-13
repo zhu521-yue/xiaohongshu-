@@ -1564,3 +1564,39 @@ Worker service
 - 本地 SQLite stack 的启动、健康检查、停止和日志查看入口初版已齐。
 - 工程化仍缺系统级进程守护、自动重启和告警通知，但不再阻塞进入 M5。
 - 下一步主线进入 M5 GraphRAG 数据入库/查询准备。
+
+## 36. 2026-06-13 M5 GraphRAG 运营记忆图谱视图初版完成
+
+本次正式启动 M5 主线第一片：在不引入新外部依赖的前提下，从现有 operation memory 派生图谱视图和查询接口。
+
+已完成：
+
+- 新增 `app/memory_graph.py`：
+  - 抽取 topic、pain、content_type、content_format、record 节点。
+  - 生成记录与主题、痛点、内容形式、内容格式之间的关系边。
+  - 输出高表现记录、相关痛点、推荐内容形式和召回证据。
+  - 主题过滤改为保守包含匹配，避免单字召回造成跨领域污染。
+- 新增 API：
+  - `GET /memory/graph?topic=...&limit=...`
+- `nodes/memory_node.retrieve_graphrag_memory()` 现在会返回：
+  - `retrieved_memory`
+  - `successful_patterns`
+  - `graphrag_memory`
+- `app/state.py` 增加 `graphrag_memory` 字段。
+- 新增测试：
+  - `tests/test_memory_graph.py`
+  - `tests/test_api_memory_graph.py`
+  - `tests/test_memory_node.py`
+
+验证补充：
+
+- TDD RED 覆盖服务缺失和节点未返回 `graphrag_memory`。
+- 新增 M5 测试通过：`4 passed`。
+- 相关回归通过：`17 passed`。
+- Python 编译检查通过：`compileall app nodes memory scripts tests`。
+
+路线图影响：
+
+- M5 从“未开始”调整为“图谱视图与查询初版完成”。
+- 向量检索、embedding、跨主题语义召回、合规风险历史召回和前端召回依据展示仍未完成。
+- 下一步建议继续 M5：让策略/生成节点消费 `graphrag_memory`，或先在工作台展示召回依据。

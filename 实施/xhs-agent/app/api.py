@@ -24,6 +24,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from app import creator_performance_sync as creator_performance_sync_service
+from app import memory_graph as memory_graph_service
 from app.config import load_settings
 from app.business_store import sync_run_business_tables
 from app.business_queries import get_business_run_snapshot as read_business_run_snapshot
@@ -1134,6 +1135,22 @@ def get_performance_trends(limit: int = 20) -> dict[str, Any]:
     }
 
 
+def get_memory_graph(*, topic: str = "", limit: int = 20) -> dict[str, Any]:
+    history = load_history()
+    records = [
+        record
+        for record in history.get("records") or []
+        if isinstance(record, dict)
+    ]
+    return {
+        "memory_graph": memory_graph_service.query_memory_graph(
+            records,
+            topic=topic,
+            limit=max(0, int(limit)),
+        )
+    }
+
+
 def _creator_performance_targets(payload: dict[str, Any]) -> list[dict[str, str]]:
     raw_targets = payload.get("targets")
     targets: list[dict[str, str]] = []
@@ -1566,6 +1583,11 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
 
         if path == "/memory/records":
             self._send_json(200, {"ok": True, **list_memory_records(limit=limit)})
+            return
+
+        if path == "/memory/graph":
+            topic = str(query.get("topic", [""])[0] or "").strip()
+            self._send_json(200, {"ok": True, **get_memory_graph(topic=topic, limit=limit)})
             return
 
         self._send_error(404, f"Unknown endpoint: {path}")

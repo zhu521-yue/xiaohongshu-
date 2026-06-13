@@ -5,6 +5,7 @@ be replaced by GraphRAG without changing the rest of the graph.
 """
 
 from app.state import XHSState
+from app.memory_graph import query_memory_graph
 from memory.operation_store import (
     find_relevant_records,
     find_successful_patterns,
@@ -17,10 +18,12 @@ def retrieve_graphrag_memory(state: XHSState) -> dict:
     topic = state.get("user_topic", "")
     retrieved_memory = find_relevant_records(topic, limit=5)
     successful_patterns = find_successful_patterns(topic, limit=3)
+    graphrag_memory = query_memory_graph(retrieved_memory, topic=topic, limit=5)
 
     return {
         "retrieved_memory": retrieved_memory,
         "successful_patterns": successful_patterns,
+        "graphrag_memory": graphrag_memory,
     }
 
 

@@ -53,6 +53,7 @@ class XHSState(TypedDict, total=False):
     # 记忆检索
     retrieved_memory: List[Dict[str, Any]]
     successful_patterns: List[Dict[str, Any]]
+    graphrag_memory: Dict[str, Any]
     operation_record_id: Optional[str]
     operation_memory_path: Optional[str]
     operation_memory_written: bool

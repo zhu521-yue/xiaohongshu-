@@ -1,5 +1,43 @@
 # 当前工程进度
 
+## 2026-06-13 M5 GraphRAG 运营记忆图谱视图初版
+
+本轮目标是在工程化遗留项收口后，启动 M5 主线的第一片：先不引入新数据库、向量库或外部 GraphRAG 框架，而是基于现有 operation memory 记录生成可查询的图谱视图，为后续向量检索和召回解释打基础。
+
+已完成：
+- 新增 `app/memory_graph.py`：
+  - 从 operation memory 记录抽取 `topic`、`pain`、`content_type`、`content_format`、`record` 节点。
+  - 生成 `about_topic`、`addresses_pain`、`uses_content_type`、`uses_content_format`、`topic_has_pain`、`pain_uses_content_type` 等边。
+  - 按主题过滤相关记录，避免单字模糊召回导致跨领域污染。
+  - 输出高表现记录、相关痛点、推荐内容形式和召回证据。
+- 新增 API：
+  - `GET /memory/graph?topic=...&limit=...`
+  - 返回 `memory_graph`，用于后续工作台展示召回依据或调试 M5 记忆。
+- 扩展 `nodes/memory_node.retrieve_graphrag_memory()`：
+  - 保留旧的 `retrieved_memory` 和 `successful_patterns`。
+  - 新增 `graphrag_memory`，把图谱摘要写入 LangGraph state。
+- 扩展 `app/state.py`：
+  - 新增 `graphrag_memory` state 字段。
+
+验证结果：
+- TDD RED：`app.memory_graph` 缺失时新增测试先失败；`retrieve_graphrag_memory` 未返回 `graphrag_memory` 时节点测试先失败。
+- RED->GREEN：`tests/test_memory_graph.py tests/test_api_memory_graph.py tests/test_memory_node.py` -> `4 passed`。
+- 相关回归通过：记忆图谱、HTTP、记忆节点、operation store、graph events、LangGraph runtime -> `17 passed`。
+- Python 编译检查通过：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes memory scripts tests`。
+
+当前效果：
+- M5 已从“未开始”推进到“基于现有运营记忆的图谱视图与查询初版”。
+- 主流程已经能在记忆检索节点产出 `graphrag_memory`，但生成节点暂时还没有消费它。
+
+当前限制：
+- 还不是完整 GraphRAG：没有向量检索、embedding、图数据库或跨主题语义召回。
+- 前端尚未展示 `memory_graph` 召回依据。
+- 召回仍主要基于 operation memory 的结构化字段和保守文本包含匹配。
+
+下一步建议：
+- 继续 M5：把 `graphrag_memory` 用于内容策略/生成前的可解释召回输入，或先做工作台召回依据展示。
+- 后续再评估是否加入 embedding/向量库；当前阶段先不引入新依赖。
+
 ## 2026-06-13 SQLite stack 健康检查、停止与日志脚本
 
 本轮目标是在统一启动编排脚本之后，继续收口本地工程化遗留问题：补齐启动后的健康检查、停止和日志查看入口。该能力只管理本地运行进程和日志，不触发真实平台写入。
