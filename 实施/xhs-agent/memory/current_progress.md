@@ -2222,3 +2222,47 @@
 - 增加完整运行配置组合检查或 smoke 脚本，一次性验证 SQLite API、worker、watchdog、business tables、events 是否联通。
 - 继续补 `/performance` 到 `performance_records` 的反向同步，收口表现数据闭环。
 - 在下一次真实端到端小流量验证前，先使用 mock + SQLite + watchdog 模式跑一条任务，确认事件时间线完整。
+
+## 2026-06-13 SQLite stack smoke 组合检查
+
+本轮目标是提高日常开发效率：新增一个一键 smoke 检查，在 mock 模式下验证 SQLite API、SQLite queue、worker、watchdog、business tables 和 run_events 是否完整联通。
+
+已完成：
+- 新增设计文档：
+  - `docs/superpowers/specs/2026-06-13-sqlite-stack-smoke-design.md`
+- 新增实施计划：
+  - `docs/superpowers/plans/2026-06-13-sqlite-stack-smoke.md`
+- 新增 `scripts/check_sqlite_stack.py`：
+  - 临时设置 SQLite run store、SQLite queue、SQLite memory、foundation schema 和 business tables enabled。
+  - 强制使用 `COLLECTOR_MODE=mock`、`LLM_MODEL_NAME=mock`、`CREATOR_MODE=mock`。
+  - 调用 `api.submit_run()` 提交异步 run。
+  - 调用 `run_worker.run_once()` 处理 run。
+  - 调用 `run_worker.run_watchdog_once()` 验证 watchdog 入口。
+  - 调用 `api.get_business_run_snapshot()` 验证业务表和事件时间线。
+  - 输出 JSON 摘要，包含 run、queue、watchdog、business_run、event_types 和 checks。
+  - 执行结束后恢复原环境变量并重置 API/operation memory 单例。
+- 新增 `tests/test_check_sqlite_stack.py` 覆盖 smoke 成功、环境恢复和 CLI 输出。
+
+验证结果：
+- TDD RED：新增测试先因 `scripts.check_sqlite_stack` 缺失失败。
+- 定点 RED->GREEN 通过：`tests/test_check_sqlite_stack.py` 为 `4 passed`。
+- 重点组合验证通过：`tests/test_check_sqlite_stack.py tests/test_sqlite_queue_worker_integration.py tests/test_run_worker.py tests/test_runtime_config_check.py` 为 `26 passed`。
+- CLI smoke 通过：`scripts/check_sqlite_stack.py` 输出 `"ok": true`，run 最终 `status=success`，queue 清空，watchdog 未误标超时。
+- 编译检查通过：`python -m compileall app scripts tests`。
+- 全量测试通过：`224 passed`。
+
+当前效果：
+- 现在可以用一条命令快速验证 mock + SQLite 工程底座是否可用：
+  - `D:\Anaconda\envs\ContentShare\python.exe .\scripts\check_sqlite_stack.py`
+- 默认使用 `data/` 下被 Git 忽略的唯一 smoke DB 文件，便于排查。
+- 传入 `--db-path` 时可以指定 DB 位置。
+
+当前限制：
+- 本脚本不启动真实 HTTP API 服务，不做端口级检查。
+- 本脚本不访问真实小红书平台，不验证真实 Cookie。
+- 本脚本只跑一次 worker 和一次 watchdog，不替代长时间稳定性测试。
+
+下一步建议：
+- 将该 smoke 纳入每轮开发完成前的固定验证组合。
+- 继续补 `/performance` 到 `performance_records` 的反向同步，收口表现数据闭环。
+- 之后用真实 Cookie 做小流量端到端复验前，先运行本 smoke 确认工程底座健康。

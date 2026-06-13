@@ -1247,3 +1247,38 @@ Worker service
 - “watchdog 常驻/启动模板集成”从待办调整为初版完成。
 - 当前仍不强杀运行线程，不撤销真实平台请求；这是符合平台安全边界的本地状态治理。
 - 下一步建议做完整运行配置组合检查或 mock SQLite 端到端 smoke，再进入 `/performance` 到 `performance_records` 的反向同步。
+
+## 27. 2026-06-13 SQLite stack smoke 组合检查完成
+
+本次主线新增一键 mock SQLite stack smoke，用于提高日常开发效率和提交前验证质量：
+
+- 新增 `scripts/check_sqlite_stack.py`。
+- 脚本会在进程内临时设置 mock + SQLite 环境：
+  - SQLite run store
+  - SQLite run queue
+  - SQLite operation memory
+  - foundation business tables
+  - business table events
+- 脚本会提交一条异步 run，调用 worker 处理，调用 watchdog 扫描，并读取业务表快照。
+- 输出 JSON 摘要，包含 run 状态、queue 状态、watchdog 结果、business_run、event_types 和 checks。
+- 执行完成后恢复原环境变量并重置 API/operation memory 单例。
+- 新增测试 `tests/test_check_sqlite_stack.py`，覆盖 smoke 成功、环境恢复和 CLI 输出。
+- 新增设计和计划文档：
+  - `docs/superpowers/specs/2026-06-13-sqlite-stack-smoke-design.md`
+  - `docs/superpowers/plans/2026-06-13-sqlite-stack-smoke.md`
+
+验证补充：
+
+- TDD RED：新增测试先因 `scripts.check_sqlite_stack` 缺失失败。
+- 定点 RED->GREEN 通过：`tests/test_check_sqlite_stack.py` 为 `4 passed`。
+- 重点组合验证通过：`tests/test_check_sqlite_stack.py tests/test_sqlite_queue_worker_integration.py tests/test_run_worker.py tests/test_runtime_config_check.py` 为 `26 passed`。
+- CLI smoke 通过：`scripts/check_sqlite_stack.py` 输出 `"ok": true`，run 最终 `status=success`，queue 清空，watchdog 未误标超时。
+- 编译检查通过：`python -m compileall app scripts tests`。
+- 全量测试通过：`224 passed`。
+
+路线图影响：
+
+- “完整运行配置组合检查或 smoke 脚本”从待办调整为初版完成。
+- 现在每轮开发可以先用 `scripts/check_sqlite_stack.py` 快速确认工程底座健康。
+- 该 smoke 不替代真实 HTTP/API 端口验证和真实平台小流量验证；它服务本地工程链路健康检查。
+- 下一步建议进入 `/performance` 到 `performance_records` 的反向同步。
