@@ -1,5 +1,63 @@
 # 当前工程进度
 
+## 2026-06-13 M5 GraphRAG 记忆消费侧初版
+
+本轮目标是在 M5 图谱视图初版之后，继续推进第二片：让 `graphrag_memory` 从“主流程能产出”变成“策略和生成链路能消费”。范围只覆盖现有 operation memory 派生视图的消费侧，不引入向量库、图数据库、新入库流程或前端图谱展示。
+
+已完成：
+- 新增中文设计文档：
+  - `docs/superpowers/specs/2026-06-13-m5-graphrag-memory-consumption-design.md`
+- 新增中文实施计划：
+  - `docs/superpowers/plans/2026-06-13-m5-graphrag-memory-consumption.md`
+- 新增 `nodes/memory_context.py`：
+  - 统一从 `XHSState.graphrag_memory` 提取推荐内容类型、相关痛点和召回证据。
+  - 过滤非法 content type、无证据推荐、异常结构和空字段。
+  - 为生成节点输出紧凑的 `memory_context` prompt payload。
+- 改造 `nodes/strategy_node.py`：
+  - 策略优先级调整为：关键词规则 > GraphRAG 推荐 > `successful_patterns` > 默认类型。
+  - 保留冷启动和软广限制兜底。
+- 改造 `nodes/content_node.py` 和 `nodes/video_node.py`：
+  - LLM input payload 增加 `memory_context`。
+  - JSON 输出合同不变。
+  - fallback 模板不强依赖历史记忆，记忆为空时行为保持稳定。
+- 新增测试：
+  - `tests/test_memory_context.py`
+  - `tests/test_strategy_memory_context.py`
+  - `tests/test_generation_memory_context.py`
+
+已验证：
+- TDD RED：
+  - `tests/test_memory_context.py` 先因 `nodes.memory_context` 缺失失败。
+  - `tests/test_strategy_memory_context.py` 先因策略仍返回 `knowledge_share` 而失败。
+  - `tests/test_generation_memory_context.py` 先因 prompt payload 缺少 `memory_context` 而失败。
+- RED->GREEN：
+  - `tests/test_memory_context.py` -> `5 passed`。
+  - `tests/test_strategy_memory_context.py tests/test_memory_context.py` -> `8 passed`。
+  - `tests/test_generation_memory_context.py tests/test_memory_context.py` -> `8 passed`。
+  - 新增定点组合：`tests/test_memory_context.py tests/test_strategy_memory_context.py tests/test_generation_memory_context.py` -> `11 passed`。
+- 相关回归：
+  - `tests/test_memory_context.py tests/test_strategy_memory_context.py tests/test_generation_memory_context.py tests/test_memory_graph.py tests/test_memory_node.py tests/test_graph_run_events.py tests/test_langgraph_runtime.py` -> `21 passed`。
+- Python 编译检查通过：
+  - `D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes memory platforms scripts tests`。
+- 全量测试通过：
+  - `D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `300 passed`。
+
+当前效果：
+- M5 已从“图谱视图可查询”推进到“下游策略和 LLM prompt 能消费图谱记忆”。
+- 记忆解析集中在 `nodes/memory_context.py`，避免策略、图文、视频节点各自硬编码 `graphrag_memory` 结构。
+- 生成节点现在能把召回证据、相关痛点和推荐结构交给 LLM，但不会把历史正文硬塞进 fallback 模板。
+
+当前限制：
+- 仍不是真正完整 RAG/GraphRAG：没有 embedding、向量检索、图数据库或跨主题语义召回。
+- 还没有按 `rag_eligibility` 控制哪些 run 可以进入长期记忆。
+- 前端尚未展示召回依据和图谱关系。
+- 历史 operation memory 全量迁移仍未完成。
+- 正式公网部署仍缺 HTTPS、反向代理、系统级进程守护、账号权限和更强密钥治理。
+
+下一步建议：
+- 继续 M5 时，优先做“按 `rag_eligibility` 控制可入库记忆 + 工作台展示召回依据”。
+- 如果先收口部署，则继续补 production-lite 的真实配置模板、密钥治理和进程守护方案。
+
 ## 2026-06-13 三条基础线一期闭环
 
 本轮目标是在继续 M5/M6 主线前，先补齐 RAG 前数据质量、硬编码配置治理和 production-lite 部署基线的最小可测闭环。范围控制在当前 LangGraph-first + SQLite runtime 内，不引入向量库、图数据库、Docker、Nginx、systemd、Redis 或新的真实平台写入行为。

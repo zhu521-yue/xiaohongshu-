@@ -1633,3 +1633,42 @@ Worker service
 - “硬编码治理”从部分完成推进为关键质量阈值和历史记忆污染规则配置化；fallback 文案、默认标签和更多部署模板默认值仍可继续治理。
 - “部署基线”从启动模板推进到 deploy preflight + SQLite backup/restore 初版。
 - 本轮仍不是完整 RAG，也不是正式公网生产部署；embedding、向量检索、历史大迁移、HTTPS、反向代理、系统级进程守护、账号权限和更强密钥治理继续后置。
+
+## 38. 2026-06-13 M5 GraphRAG 记忆消费侧初版完成
+
+本次继续推进 M5 第二片：在不引入向量库、图数据库或新入库流程的前提下，让 `graphrag_memory` 开始进入策略选择和 LLM 生成输入。
+
+已完成：
+
+- 新增 `nodes/memory_context.py`，作为 GraphRAG 记忆消费侧适配层：
+  - 提取有证据的推荐内容类型。
+  - 压缩相关痛点和召回证据。
+  - 过滤非法 content type、异常结构和空字段。
+- `nodes/strategy_node.py` 开始消费 GraphRAG 推荐：
+  - 优先级为关键词规则 > GraphRAG 推荐 > `successful_patterns` > 默认类型。
+  - 软广限制和冷启动兜底保持不变。
+- `nodes/content_node.py` 和 `nodes/video_node.py` 的 LLM prompt payload 增加 `memory_context`：
+  - 模型可看到召回证据、相关痛点和推荐结构。
+  - JSON 输出合同不变。
+  - fallback 模板不强依赖历史记忆。
+- 新增中文设计与计划文档：
+  - `docs/superpowers/specs/2026-06-13-m5-graphrag-memory-consumption-design.md`
+  - `docs/superpowers/plans/2026-06-13-m5-graphrag-memory-consumption.md`
+
+验证补充：
+
+- TDD RED 覆盖：
+  - 适配层缺失。
+  - 策略未使用 GraphRAG 推荐。
+  - 生成 prompt 未包含 `memory_context`。
+- 新增定点测试通过：`11 passed`。
+- 相关记忆与 LangGraph runtime 回归通过：`21 passed`。
+- Python 编译检查通过。
+- 全量测试通过：`300 passed`。
+
+路线图影响：
+
+- M5 从“图谱视图与查询初版完成”推进为“图谱记忆消费侧初版完成”。
+- `graphrag_memory` 现在已进入策略和 LLM prompt，但仍不是完整 RAG 入库。
+- 下一步 M5 建议转向按 `rag_eligibility` 控制长期记忆入库，并在工作台展示召回依据。
+- embedding、向量检索、图数据库、历史大迁移和正式公网生产部署继续后置。
