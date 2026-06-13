@@ -1,5 +1,55 @@
 # 当前工程进度
 
+## 2026-06-13 三条基础线一期闭环
+
+本轮目标是在继续 M5/M6 主线前，先补齐 RAG 前数据质量、硬编码配置治理和 production-lite 部署基线的最小可测闭环。范围控制在当前 LangGraph-first + SQLite runtime 内，不引入向量库、图数据库、Docker、Nginx、systemd、Redis 或新的真实平台写入行为。
+
+已完成：
+- 新增 `config/data_quality_rules.json`：
+  - 统一保存 RAG 入库门槛、`analysis_report` 阈值和跨领域健康污染过滤规则。
+- 扩展 `app.rules.load_data_quality_rules()`。
+- 改造 `platforms/analysis_report.py`：
+  - 评论质量等级阈值、评论抓取失败惩罚和空样本分数上限改为配置驱动。
+- 新增 `app/data_quality_gate.py`：
+  - 基于 `analysis_report`、候选池、评论、评论洞察、痛点和抓取错误生成 `rag_eligibility`。
+  - 输出 `eligible`、`level`、`score`、`reasons`、`blocking_reasons` 和 `recommended_action`。
+- 扩展 `nodes/insight_node.py` 和 `app/state.py`：
+  - 洞察分析后写入 `rag_eligibility`。
+- 扩展 `app.api._insight_payload()`：
+  - API insight payload 暴露 `rag_eligibility`，便于后续工作台展示。
+- 改造 `memory/operation_store.py`：
+  - 健康主题关键词和跨领域污染模式从配置加载，不再硬编码在 Python 常量里。
+- 新增 production-lite 部署辅助脚本：
+  - `scripts/check_production_lite_deploy.py`
+  - `scripts/backup_sqlite_db.py`
+  - `scripts/restore_sqlite_db.py`
+- 更新 `docs/m17b-startup-templates.md`：
+  - 补充部署检查、SQLite 备份和恢复命令。
+
+已验证：
+- `tests/test_analysis_report_config.py tests/test_analysis_report.py tests/test_analysis_report_integration.py tests/test_check_collector_output.py` -> `10 passed`。
+- `tests/test_data_quality_gate.py tests/test_analysis_report_integration.py` -> `7 passed`。
+- `tests/test_operation_memory_config.py tests/test_operation_store_sqlite.py tests/test_memory_graph.py tests/test_memory_node.py` -> `10 passed`。
+- `tests/test_production_lite_deploy_check.py` -> `2 passed`。
+- `tests/test_sqlite_backup_restore_scripts.py` -> `3 passed`。
+- 最终新增定点组合：`tests/test_analysis_report_config.py tests/test_data_quality_gate.py tests/test_operation_memory_config.py tests/test_production_lite_deploy_check.py tests/test_sqlite_backup_restore_scripts.py` -> `10 passed`。
+- 最终相关回归组合：`tests/test_analysis_report.py tests/test_analysis_report_integration.py tests/test_check_collector_output.py tests/test_operation_store_sqlite.py tests/test_memory_graph.py tests/test_memory_node.py tests/test_business_store.py tests/test_api_business_table_sync.py` -> `32 passed`。
+- Python 编译检查通过：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes memory platforms scripts tests`。
+- 当前本地 `.env` 下运行 `scripts/check_production_lite_deploy.py --backup-dir data/backups` 按预期返回 `ok=false`：API token 缺失、run store/queue/memory 仍是开发默认、业务表写入未启用；这说明当前环境还不是 production-lite 部署配置。
+
+当前效果：
+- RAG/GraphRAG 入库前已经有明确的质量资格对象，但本轮不执行真正入库。
+- 数据分析阈值和历史记忆污染规则已从源码迁到配置文件，后续可继续把 fallback 文案和更多质量规则外置。
+- 单机 SQLite production-lite 部署多了部署前检查和备份/恢复入口。
+
+当前限制：
+- 还不是完整 RAG：没有 embedding、向量检索、图数据库、跨主题语义召回或前端召回依据展示。
+- 还不是正式公网生产部署：仍缺 HTTPS、反向代理、系统级进程守护、自动重启、账号权限和更强密钥治理。
+- 备份/恢复脚本只处理单 SQLite 文件形态，不处理多文件对象存储、图片素材目录或历史 JSON 大迁移。
+
+下一步建议：
+- 跑完本轮最终回归和编译检查后，再决定继续 M5 的 `graphrag_memory` 消费侧，或继续把 fallback 文案、质量阈值和部署脚本做进一步收口。
+
 ## 2026-06-13 M5 GraphRAG 运营记忆图谱视图初版
 
 本轮目标是在工程化遗留项收口后，启动 M5 主线的第一片：先不引入新数据库、向量库或外部 GraphRAG 框架，而是基于现有 operation memory 记录生成可查询的图谱视图，为后续向量检索和召回解释打基础。

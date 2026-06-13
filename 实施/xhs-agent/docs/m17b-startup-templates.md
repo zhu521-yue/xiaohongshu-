@@ -176,6 +176,36 @@ $env:XHS_AGENT_MEMORY_DB_PATH = 'data/xhs_agent.sqlite3'
 
 `production-lite` fails if `XHS_AGENT_API_TOKEN` is empty. It warns when real LLM keys or Spider_XHS cookies are missing.
 
+## Production-Lite Deploy Checklist
+
+Run the deployment-focused preflight before a server-facing single-machine deployment:
+
+```powershell
+& $python .\scripts\check_production_lite_deploy.py --backup-dir data/backups
+```
+
+This check fails when API token, SQLite store/queue/memory, foundation schema, business table writes, log directory, DB directory, or backup directory are not ready. Missing real LLM key or Spider_XHS cookie is reported as a warning. The script checks whether sensitive settings are present, but it does not print their values.
+
+Back up the SQLite database:
+
+```powershell
+& $python .\scripts\backup_sqlite_db.py --db-path data/xhs_agent.sqlite3 --backup-dir data/backups
+```
+
+Dry-run restore:
+
+```powershell
+& $python .\scripts\restore_sqlite_db.py --target-db-path data/xhs_agent.sqlite3 --backup-path data/backups/<backup-file>.sqlite3
+```
+
+Apply restore:
+
+```powershell
+& $python .\scripts\restore_sqlite_db.py --target-db-path data/xhs_agent.sqlite3 --backup-path data/backups/<backup-file>.sqlite3 --apply
+```
+
+Restore creates a pre-restore backup before replacing the target database when the target file exists.
+
 ## Logs
 
 Default log files:

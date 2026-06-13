@@ -1600,3 +1600,36 @@ Worker service
 - M5 从“未开始”调整为“图谱视图与查询初版完成”。
 - 向量检索、embedding、跨主题语义召回、合规风险历史召回和前端召回依据展示仍未完成。
 - 下一步建议继续 M5：让策略/生成节点消费 `graphrag_memory`，或先在工作台展示召回依据。
+
+## 37. 2026-06-13 三条基础线一期闭环完成
+
+本次暂停主线功能推进，优先补齐 RAG 前数据质量、硬编码配置治理和 production-lite 部署基线的一期闭环。
+
+已完成：
+
+- 数据质量线：
+  - 新增 `config/data_quality_rules.json`，统一保存 RAG 入库门槛、分析报告阈值和跨领域污染规则。
+  - 新增 `app/data_quality_gate.py`，生成 `rag_eligibility`。
+  - `nodes/insight_node.py` 在生成 `analysis_report` 后写入 `rag_eligibility`。
+  - `app.api._insight_payload()` 暴露 `rag_eligibility`。
+- 配置治理线：
+  - `platforms/analysis_report.py` 的评论质量阈值、错误惩罚和空样本分数上限改为配置驱动。
+  - `memory/operation_store.py` 的健康主题关键词和跨领域污染模式改为配置驱动。
+- 部署基线：
+  - 新增 `scripts/check_production_lite_deploy.py`，用于部署前检查 API token、SQLite store/queue/memory、foundation schema、业务表写入、日志目录、DB 目录和备份目录。
+  - 新增 `scripts/backup_sqlite_db.py` 和 `scripts/restore_sqlite_db.py`，支持单 SQLite DB 的备份和安全恢复。
+  - 更新 `docs/m17b-startup-templates.md`，补充部署检查、备份和恢复命令。
+
+验证补充：
+
+- 新增配置阈值、RAG eligibility、operation memory 配置、部署检查、备份恢复定点测试均已通过。
+- 相关分析报告、记忆、业务表和 API payload 回归已按本轮范围验证。
+- Python 编译检查通过。
+- 当前本地 `.env` 仍是开发形态，production-lite deploy check 会拦截 API token 缺失、SQLite backend 未启用和业务表写入未启用等部署前问题。
+
+路线图影响：
+
+- “RAG 前数据质量门槛”从未完成调整为初版完成。
+- “硬编码治理”从部分完成推进为关键质量阈值和历史记忆污染规则配置化；fallback 文案、默认标签和更多部署模板默认值仍可继续治理。
+- “部署基线”从启动模板推进到 deploy preflight + SQLite backup/restore 初版。
+- 本轮仍不是完整 RAG，也不是正式公网生产部署；embedding、向量检索、历史大迁移、HTTPS、反向代理、系统级进程守护、账号权限和更强密钥治理继续后置。
