@@ -2390,3 +2390,34 @@
 - 先提交本轮 LangGraph-first runtime 迁移。
 - 然后用真实 Cookie 做一条小流量端到端复验：waiting_review -> 绑定真实图片 -> creator 私密发布 -> 作品列表只读同步 -> `/performance` 回填。
 - 真实主链稳定后，再进入 M5 GraphRAG 运营记忆增强；阶段二软广和达人能力继续后置。
+
+## 2026-06-13 LangGraph runtime 边界清理
+
+本轮目标是在 LangGraph-first 主流程合并后，先做一轮保守清理，删除 API 层明显无用的迁移残留，同时保留有用的显式兼容路径。
+
+已完成：
+- 新增清理设计与计划文档：
+  - `docs/superpowers/specs/2026-06-13-langgraph-runtime-boundary-cleanup-design.md`
+  - `docs/superpowers/plans/2026-06-13-langgraph-runtime-boundary-cleanup.md`
+- 删除 `app/api.py` 中 `approve_run()` / `reject_run()` return 后不可达的旧手动拼流程代码。
+- 删除只服务旧流程的 API 层 creator 发布 helper。
+- 删除 API 对 `publish_node`、`review_performance`、`write_operation_memory` 和 `run_langgraph` 的无用 import。
+- 测试 fixture 改为直接 patch `nodes.publish_node.OUTPUT_DIR`，不再要求 `app.api` 暴露 publish node 模块。
+- 新增边界测试，锁定 `app.api` 不再暴露 legacy direct creator publish helper。
+
+保留：
+- `run_local_graph()` 和显式 `engine=local` 兼容路径继续保留。
+- creator 发布的有效实现保留在 `platforms/creator_publish_flow.py` 和 `nodes/creator_publish_node.py`。
+- API 层仍保留 creator 素材绑定、payload 校验和错误脱敏等有用边界。
+
+验证结果：
+- RED：`test_api_no_longer_exposes_legacy_direct_creator_publish_helpers` 先因 legacy helper 仍存在失败。
+- GREEN：`tests/test_api_langgraph_resume.py` -> `4 passed`。
+- 相关回归：`tests/test_api_creator_review_publish.py tests/test_creator_asset_binding.py tests/test_creator_note_performance_sync.py tests/test_api_langgraph_resume.py` -> `27 passed`。
+- 编译检查通过：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes routers platforms memory scripts llm`。
+- 全量测试通过：`D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `247 passed`。
+
+当前限制：
+- 本轮只清理 API 层明显死代码，没有拆分 `app/api.py` 大文件。
+- 旧 worktree 目录仍需要单独清理或确认。
+- 真实平台小流量端到端复验仍未执行。

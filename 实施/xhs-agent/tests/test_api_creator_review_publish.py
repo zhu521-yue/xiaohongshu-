@@ -11,6 +11,7 @@ from app.langgraph_checkpoint import SQLiteSnapshotSaver
 from app.langgraph_runtime import graph_thread_config
 from app.run_store import LocalRunStore
 from memory import operation_store
+from nodes import publish_node
 
 
 def _reset_services() -> None:
@@ -34,7 +35,7 @@ def isolated_api(tmp_path: Path, monkeypatch):
         "MEMORY_BACKEND",
         operation_store.JsonOperationMemoryBackend(tmp_path / "operation_history.json"),
     )
-    monkeypatch.setattr(api.publish_node, "OUTPUT_DIR", tmp_path / "markdown_exports")
+    monkeypatch.setattr(publish_node, "OUTPUT_DIR", tmp_path / "markdown_exports")
     yield tmp_path
     _reset_services()
 

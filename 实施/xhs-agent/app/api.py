@@ -26,15 +26,12 @@ from urllib.parse import parse_qs, urlparse
 from app.config import load_settings
 from app.business_store import sync_run_business_tables
 from app.business_queries import get_business_run_snapshot as read_business_run_snapshot
-from app.graph import run_langgraph, run_local_graph
+from app.graph import run_local_graph
 from app.langgraph_runtime import run_graph_thread, resume_graph_thread, update_graph_thread_state
 from app.run_events import record_run_event
 from app.run_queue import LocalRunQueue, SQLiteRunQueue
 from app.run_store import LocalRunStore, SQLiteRunStore
 from memory.operation_store import load_history, operation_memory_path, update_record_performance
-from nodes.memory_node import write_operation_memory
-from nodes import publish_node
-from nodes.review_node import review_performance
 from platforms import collector as collector_platform
 from platforms import creator as creator_platform
 from platforms import platform_guardrails
@@ -384,39 +381,6 @@ def _path_for_state(path: Path) -> str:
         return str(resolved)
 
 
-def _resolve_creator_asset_path(path_value: Any) -> Path:
-    raw_path = str(path_value or "").strip()
-    if not raw_path:
-        raise ValueError("creator asset path is empty")
-
-    path = Path(raw_path)
-    if not path.is_absolute():
-        path = PROJECT_ROOT / path
-
-    resolved = path.resolve()
-    asset_root = CREATOR_ASSETS_DIR.resolve()
-    if resolved != asset_root and asset_root not in resolved.parents:
-        raise ValueError("creator asset path must stay inside creator asset directory")
-    return resolved
-
-
-def _creator_image_file_bytes_from_state(state: dict[str, Any]) -> list[bytes]:
-    files = state.get("creator_image_files") or []
-    if not isinstance(files, list) or not files:
-        return []
-
-    image_bytes = []
-    for file_value in files:
-        path = _resolve_creator_asset_path(file_value)
-        if not path.exists() or not path.is_file():
-            raise ValueError(f"creator asset file not found: {path}")
-        payload = path.read_bytes()
-        if not _is_supported_creator_image_bytes(payload):
-            raise ValueError("creator publishing requires valid image bytes in state when CREATOR_MODE=spider_xhs")
-        image_bytes.append(payload)
-    return image_bytes
-
-
 def queue_status() -> dict[str, Any]:
     return _run_queue_service().status()
 
@@ -573,10 +537,6 @@ def _initial_state_from_request(request_payload: dict[str, Any]) -> dict[str, An
         "save_collection": request_payload["save_collection"],
         "run_status": "queued",
     }
-
-
-def _runner_for_request(request_payload: dict[str, Any]):
-    return run_langgraph if request_payload["engine"] == "langgraph" else run_local_graph
 
 
 def _run_workflow(
@@ -860,17 +820,6 @@ def _save_reviewed_run(
     return reviewed
 
 
-def _creator_publish_not_requested() -> dict[str, Any]:
-    return {
-        "creator_publish_requested": False,
-        "creator_publish_status": "not_requested",
-        "creator_publish_mode": creator_platform.creator_mode(),
-        "creator_note_id": None,
-        "creator_publish_error": None,
-        "creator_publish_result": {},
-    }
-
-
 def _sanitize_creator_error(error: Any) -> str:
     text = str(error)
     replacements = [
@@ -896,46 +845,6 @@ def _redacted_creator_error_match(match: re.Match[str]) -> str:
     return f"{key}=[REDACTED]"
 
 
-def _creator_publish_failed(error: str, *, requested: bool = True) -> dict[str, Any]:
-    mode = creator_platform.creator_mode()
-    sanitized_error = _sanitize_creator_error(error)
-    return {
-        "creator_publish_requested": requested,
-        "creator_publish_status": "failed",
-        "creator_publish_mode": mode,
-        "creator_note_id": None,
-        "creator_publish_error": sanitized_error,
-        "creator_publish_result": {
-            "ok": False,
-            "mode": mode,
-            "platform": "xhs_creator",
-            "error": sanitized_error,
-        },
-    }
-
-
-def _compact_creator_publish_result(result: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "ok": result.get("ok") is True,
-        "mode": result.get("mode"),
-        "platform": result.get("platform"),
-        "visibility": result.get("visibility"),
-        "note_id": result.get("note_id"),
-        "error": result.get("error"),
-    }
-
-
-def _creator_publish_success(result: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "creator_publish_requested": True,
-        "creator_publish_status": "success",
-        "creator_publish_mode": str(result.get("mode") or creator_platform.creator_mode()),
-        "creator_note_id": result.get("note_id"),
-        "creator_publish_error": None,
-        "creator_publish_result": _compact_creator_publish_result(result),
-    }
-
-
 def _validate_creator_publish_payload(payload: dict[str, Any]) -> None:
     if not _bool(payload.get("creator_publish"), default=False):
         return
@@ -945,78 +854,12 @@ def _validate_creator_publish_payload(payload: dict[str, Any]) -> None:
         raise ValueError("creator_human_confirmed=True is required for creator publishing")
 
 
-def _creator_description_from_state(state: dict[str, Any]) -> str:
-    parts = [str(state.get("body") or "").strip()]
-    tags = [str(tag).strip().lstrip("#") for tag in state.get("tags") or [] if str(tag).strip()]
-    if tags:
-        parts.append(" ".join(f"#{tag}" for tag in tags))
-    comment_call = str(state.get("comment_call") or "").strip()
-    if comment_call:
-        parts.append(comment_call)
-    return "\n\n".join(part for part in parts if part).strip()
-
-
-def _creator_images_from_state(state: dict[str, Any], *, mode: str) -> list[Any]:
-    images = state.get("creator_image_bytes") or state.get("creator_images") or []
-    if isinstance(images, list) and images:
-        if mode == "mock":
-            return images
-        image_bytes = []
-        for image in images:
-            if not isinstance(image, (bytes, bytearray, memoryview)):
-                raise ValueError("creator publishing requires image bytes in state when CREATOR_MODE=spider_xhs")
-            payload = bytes(image)
-            if not _is_supported_creator_image_bytes(payload):
-                raise ValueError("creator publishing requires valid image bytes in state when CREATOR_MODE=spider_xhs")
-            image_bytes.append(payload)
-        return image_bytes
-
-    file_bytes = _creator_image_file_bytes_from_state(state)
-    if file_bytes:
-        return file_bytes
-
-    if mode == "mock":
-        return [b"mock-image-bytes"]
-    raise ValueError("creator publishing requires image bytes in state when CREATOR_MODE=spider_xhs")
-
-
 def _is_supported_creator_image_bytes(payload: bytes) -> bool:
     if len(payload) < _MIN_CREATOR_IMAGE_BYTES:
         return False
     if payload.startswith((b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a", b"BM")):
         return True
     return payload.startswith(b"RIFF") and len(payload) >= 12 and payload[8:12] == b"WEBP"
-
-
-def _build_creator_image_text_draft(state: dict[str, Any], *, mode: str) -> dict[str, Any]:
-    fallback_title = state.get("user_topic") or "Untitled note"
-    title = str((state.get("titles") or [fallback_title])[0]).strip()
-    desc = _creator_description_from_state(state)
-    return {
-        "title": title,
-        "desc": desc or title,
-        "images": _creator_images_from_state(state, mode=mode),
-        "topics": [str(tag).strip().lstrip("#") for tag in state.get("tags") or [] if str(tag).strip()],
-    }
-
-
-def _publish_creator_private_if_requested(state: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
-    if not _bool(payload.get("creator_publish"), default=False):
-        return _creator_publish_not_requested()
-
-    mode = creator_platform.creator_mode()
-    if state.get("content_format") != "image_text":
-        return _creator_publish_failed("creator publishing is image_text only in M19b")
-
-    try:
-        draft = _build_creator_image_text_draft(state, mode=mode)
-        result = creator_platform.publish_private_image_text(draft, human_confirmed=True)
-    except Exception as exc:
-        return _creator_publish_failed(str(exc))
-
-    if result.get("ok") is True:
-        return _creator_publish_success(result)
-    return _creator_publish_failed(str(result.get("error") or "creator publish failed"))
 
 
 def approve_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -1052,20 +895,6 @@ def approve_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str,
     LOGGER.info("run_approved run_id=%s", run_id)
     return reviewed
 
-    feedback = str(payload.get("feedback") or "人工审核通过。").strip()
-    state["human_approved"] = True
-    state["human_feedback"] = feedback
-    state["publish_status"] = "pending"
-
-    state.update(publish_node.publish_or_schedule(state))
-    state.update(_publish_creator_private_if_requested(state, payload))
-    state.update(review_performance(state))
-    state.update(write_operation_memory(state))
-
-    reviewed = _save_reviewed_run(record, state, review_action="approved")
-    LOGGER.info("run_approved run_id=%s", run_id)
-    return reviewed
-
 
 def reject_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     record = _load_run(run_id)
@@ -1086,31 +915,6 @@ def reject_run(run_id: str, payload: dict[str, Any] | None = None) -> dict[str, 
         event_db_path=_event_db_path_for_settings(load_settings()),
     )
     reviewed = _save_reviewed_run(record, result.state, review_action="rejected")
-    LOGGER.info("run_rejected run_id=%s", run_id)
-    return reviewed
-
-    feedback = str(payload.get("feedback") or "人工审核不通过。").strip()
-    topic = state.get("user_topic") or record.get("request", {}).get("topic") or "未命名主题"
-    state.update(
-        {
-            "human_approved": False,
-            "human_feedback": feedback,
-            "publish_status": "rejected",
-            "post_id": None,
-            "operation_memory_written": False,
-            "operation_memory_path": str(operation_memory_path()),
-            "review_summary": f"主题「{topic}」已被人工审核驳回，草稿未保存。",
-            "next_action": "根据人工反馈修改主题、结构或合规表达后重新生成。",
-            "review_generation": {
-                "enabled": False,
-                "provider_mode": "manual_review",
-                "model": None,
-                "usage": {},
-            },
-        }
-    )
-
-    reviewed = _save_reviewed_run(record, state, review_action="rejected")
     LOGGER.info("run_rejected run_id=%s", run_id)
     return reviewed
 
