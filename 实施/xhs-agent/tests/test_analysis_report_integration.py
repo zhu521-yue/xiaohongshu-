@@ -58,8 +58,34 @@ def test_insight_payload_exposes_analysis_report() -> None:
         "pain_points": [],
         "comment_fetch_errors": [],
         "analysis_report": {"summary": "样本质量中等"},
+        "rag_eligibility": {"eligible": False, "level": "blocked"},
     }
 
     payload = _insight_payload(state)
 
     assert payload["analysis_report"] == {"summary": "样本质量中等"}
+    assert payload["rag_eligibility"] == {"eligible": False, "level": "blocked"}
+
+
+def test_insight_node_adds_rag_eligibility(monkeypatch) -> None:
+    monkeypatch.setattr(
+        insight_node,
+        "collect_topic_insights",
+        lambda topic, limit=5: {
+            "collection_candidates": [{"selected": True, "score": 90, "title": "选题方法"}],
+            "raw_notes": [{"title": "选题方法"}],
+            "raw_comments": [{"content": "怎么开始？"} for _ in range(6)],
+            "comment_insights": [
+                {"pain": "不知道怎么开始", "evidence_comments": ["怎么开始？", "第一步？"]}
+            ],
+            "pain_points": [{"pain": "不知道怎么开始"}],
+            "comment_fetch_errors": [],
+        },
+    )
+
+    result = insight_node.analyze_topic_and_pain_points(
+        {"user_topic": "小红书选题", "collect_limit": 3}
+    )
+
+    assert "rag_eligibility" in result
+    assert "eligible" in result["rag_eligibility"]

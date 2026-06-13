@@ -45,6 +45,7 @@ class XHSState(TypedDict, total=False):
     pain_points: List[Dict[str, Any]]
     comment_insights: List[Dict[str, Any]]
     analysis_report: Dict[str, Any]
+    rag_eligibility: Dict[str, Any]
     collect_limit: int
     save_collection: bool
     collection_path: Optional[str]

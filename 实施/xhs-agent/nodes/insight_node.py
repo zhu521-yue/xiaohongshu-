@@ -1,4 +1,5 @@
 from app.state import XHSState
+from app.data_quality_gate import evaluate_rag_eligibility
 from platforms.analysis_report import build_analysis_report
 from platforms.collector import collect_topic_insights
 from platforms.spider_xhs_collector import save_collection_result
@@ -45,6 +46,7 @@ def analyze_topic_and_pain_points(state: XHSState) -> dict:
         pain_points=result.get("pain_points") or [],
         comment_fetch_errors=result.get("comment_fetch_errors") or [],
     )
+    result["rag_eligibility"] = evaluate_rag_eligibility(result)
 
     if state.get("save_collection"):
         path = save_collection_result(topic, result)

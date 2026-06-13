@@ -460,6 +460,7 @@ def _insight_payload(state: dict[str, Any]) -> dict[str, Any]:
         "pain_points": state.get("pain_points") or [],
         "comment_fetch_errors": state.get("comment_fetch_errors") or [],
         "analysis_report": state.get("analysis_report") or {},
+        "rag_eligibility": state.get("rag_eligibility") or {},
     }
 
 
