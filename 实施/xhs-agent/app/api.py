@@ -1022,6 +1022,10 @@ def _compact_memory_record(record: dict[str, Any]) -> dict[str, Any]:
         "review_summary": record.get("review_summary"),
         "next_action": record.get("next_action"),
         "rag_eligibility": record.get("rag_eligibility") or {},
+        "compliance_risk_level": record.get("compliance_risk_level") or "",
+        "compliance_issues": record.get("compliance_issues") or [],
+        "revised_content": record.get("revised_content") or "",
+        "compliance_summary": record.get("compliance_summary") or {},
         "review_generation": record.get("review_generation") or {},
         "updated_at": record.get("updated_at"),
     }

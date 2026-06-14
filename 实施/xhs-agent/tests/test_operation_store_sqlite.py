@@ -125,6 +125,26 @@ def test_operation_memory_record_keeps_rag_eligibility(sqlite_memory: Path) -> N
     assert loaded["rag_eligibility"]["recommended_action"] == "可以进入后续 RAG 入库候选。"
 
 
+def test_operation_memory_record_keeps_compliance_trace(sqlite_memory: Path) -> None:
+    state = sample_state("output/compliance.md")
+    state["compliance_risk_level"] = "medium"
+    state["compliance_issues"] = ["内容中包含绝对词：一定", ""]
+    state["revised_content"] = "发布前提醒：内容仅作经验分享。"
+
+    saved = store.upsert_record_from_state(state)
+    loaded = store.load_history()["records"][0]
+
+    assert saved["compliance_risk_level"] == "medium"
+    assert saved["compliance_issues"] == ["内容中包含绝对词：一定"]
+    assert loaded["revised_content"] == "发布前提醒：内容仅作经验分享。"
+    assert loaded["compliance_summary"] == {
+        "risk_level": "medium",
+        "issue_count": 1,
+        "issues": ["内容中包含绝对词：一定"],
+        "has_revision": True,
+    }
+
+
 def test_sqlite_operation_memory_filters_cross_domain_health_pollution(sqlite_memory: Path) -> None:
     polluted = sample_state("output/polluted.md", topic="小红书新手选题方法")
     polluted["pain_points"] = [{"pain": "对护理方法存在疑问，担心建议不靠谱", "evidence": "旧脏数据", "priority": 1}]

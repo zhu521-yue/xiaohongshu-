@@ -39,4 +39,10 @@ def test_workbench_has_memory_recall_evidence_panel():
     assert "recommended_content_types" in APP_JS
     assert "related_pain_points" in APP_JS
     assert "recall_evidence" in APP_JS
+    assert "similar_experience_records" in APP_JS
+    assert "historical_compliance_risks" in APP_JS
+    assert "recall_explanations" in APP_JS
+    assert "相似经验" in APP_JS
+    assert "历史合规风险" in APP_JS
+    assert "召回解释" in APP_JS
     assert ".memory-recall-evidence" in STYLES_CSS

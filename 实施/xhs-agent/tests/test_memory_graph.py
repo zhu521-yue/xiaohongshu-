@@ -149,3 +149,30 @@ def test_query_memory_graph_returns_historical_compliance_risks() -> None:
     assert result["historical_compliance_risks"][0]["risk_level"] == "medium"
     assert "一定" in result["historical_compliance_risks"][0]["matched_terms"]
     assert any(item["type"] == "historical_compliance_risk" for item in result["recall_explanations"])
+
+
+def test_historical_compliance_risks_prefer_structured_fields() -> None:
+    record = _record(
+        "op_structured_risk",
+        topic="小红书标题表达",
+        content_type="avoid_mistakes",
+        score=18,
+        pain="担心标题太夸张",
+    )
+    record["compliance_summary"] = {
+        "risk_level": "medium",
+        "issue_count": 1,
+        "issues": ["内容中包含绝对词：一定"],
+        "has_revision": True,
+    }
+
+    result = memory_graph.query_memory_graph(
+        [record],
+        topic="小红书选题",
+        compliance_risk_level="medium",
+        compliance_issues=["内容中包含绝对词：一定"],
+    )
+
+    risk = result["historical_compliance_risks"][0]
+    assert risk["record_id"] == "op_structured_risk"
+    assert "compliance_summary" in risk["matched_fields"]

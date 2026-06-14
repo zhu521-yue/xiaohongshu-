@@ -877,6 +877,9 @@ function renderMemoryRecallEvidence(memoryGraph, errorMessage = "") {
   const recommended = memoryGraph.recommended_content_types || [];
   const pains = memoryGraph.related_pain_points || [];
   const evidence = memoryGraph.recall_evidence || [];
+  const similarExperiences = memoryGraph.similar_experience_records || [];
+  const complianceRisks = memoryGraph.historical_compliance_risks || [];
+  const explanations = memoryGraph.recall_explanations || [];
   elements.memoryRecallEvidence.innerHTML = `
     <div class="memory-recall-head">
       <strong>召回依据</strong>
@@ -905,6 +908,39 @@ function renderMemoryRecallEvidence(memoryGraph, errorMessage = "") {
           evidence.length
             ? evidence.slice(0, 3).map((item) => `<p>${escapeHtml(item.title || item.topic || item.record_id || "-")}</p>`).join("")
             : `<p class="muted">暂无记录</p>`
+        }
+      </div>
+      <div>
+        <span class="metric-label">相似经验</span>
+        ${
+          similarExperiences.length
+            ? similarExperiences.slice(0, 3).map((item) => `
+              <p>${escapeHtml(item.title || item.topic || item.record_id || "-")} · ${escapeHtml(item.score ?? item.performance_score ?? 0)}</p>
+              <p class="muted">${escapeHtml(item.reason || item.matched_terms?.join(" / ") || "-")}</p>
+            `).join("")
+            : `<p class="muted">暂无相似经验</p>`
+        }
+      </div>
+      <div>
+        <span class="metric-label">历史合规风险</span>
+        ${
+          complianceRisks.length
+            ? complianceRisks.slice(0, 3).map((item) => `
+              <p>${escapeHtml(item.risk_level || "-")} · ${escapeHtml((item.issues || []).slice(0, 2).join(" / ") || "-")}</p>
+              <p class="muted">${escapeHtml(item.reason || item.matched_terms?.join(" / ") || "-")}</p>
+            `).join("")
+            : `<p class="muted">暂无历史风险</p>`
+        }
+      </div>
+      <div>
+        <span class="metric-label">召回解释</span>
+        ${
+          explanations.length
+            ? explanations.slice(0, 3).map((item) => `
+              <p>${escapeHtml(item.type || "-")} · ${escapeHtml((item.matched_terms || []).slice(0, 3).join(" / ") || "-")}</p>
+              <p class="muted">${escapeHtml(item.reason || "-")}</p>
+            `).join("")
+            : `<p class="muted">暂无解释</p>`
         }
       </div>
     </div>

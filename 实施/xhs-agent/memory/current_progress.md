@@ -1,5 +1,32 @@
 # 当前工程进度
 
+## 2026-06-14 M5 合规留痕与召回解释可见化完成
+
+本轮完成 M5 第五片：在第四片规则版相似经验与合规风险召回基础上，补齐 operation memory 的合规字段留痕、API compact 暴露、结构化历史合规风险召回，以及工作台召回解释的轻量展示。
+
+已完成：
+- `memory/operation_store.py` 会从 run state 保存 `compliance_risk_level`、清洗后的 `compliance_issues`、`revised_content` 和 `compliance_summary`。
+- `app/api.py` 的 memory record compact 摘要会暴露上述合规字段，便于工作台和后续排查使用。
+- `app/memory_graph.py` 的历史合规风险召回会优先扫描 `compliance_summary`，并在缺少顶层字段时从 summary 兜底 `risk_level` 和 `issues`。
+- 工作台召回依据区现在展示推荐结构、相关痛点、召回记录、相似经验、历史合规风险和召回解释；仍保持只读文本展示，不做复杂图谱可视化。
+- `app/static/styles.css` 将召回依据网格改为自适应列，兼容新增的六个区块。
+
+验证：
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_workbench_memory_visibility_static.py::test_workbench_has_memory_recall_evidence_panel -q` -> `1 passed`。
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_operation_store_sqlite.py tests/test_api_memory_graph.py tests/test_memory_graph.py tests/test_workbench_memory_visibility_static.py -q` -> `21 passed`。
+- `node --check app\static\app.js` -> exit code 0。
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_node.py tests/test_memory_context.py tests/test_generation_memory_context.py -q` -> `13 passed`。
+- `D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes memory tests` -> exit code 0。
+
+当前限制：
+- 本轮仍是规则版召回增强，没有引入 embedding、向量库、图数据库或新的外部服务。
+- 工作台展示是压缩后的只读证据，不提供交互式图谱、人工标注或召回调参。
+- 历史记录不会被批量迁移；新字段会从后续写入的 operation memory 开始逐步积累。
+
+下一步建议：
+- 继续 M5 主线时，可评估 embedding/向量召回的最小可测方案，但建议先保持当前规则版稳定。
+- 也可以先补一轮真实小流量验证，确认新增合规留痕和工作台展示在真实 run 中可观察。
+
 ## 2026-06-14 M5 合规留痕与召回解释可见化设计确认
 
 本轮开始 M5 第五片设计：在第四片规则版合规风险召回之后，补齐 operation memory 合规字段留痕、API 暴露、结构化合规风险召回优先级，以及工作台召回解释的轻量展示。

@@ -73,6 +73,28 @@ def test_compact_memory_record_exposes_rag_eligibility() -> None:
     }
 
 
+def test_compact_memory_record_exposes_compliance_trace() -> None:
+    compact = api._compact_memory_record(
+        {
+            "record_id": "op_1",
+            "compliance_risk_level": "medium",
+            "compliance_issues": ["内容中包含绝对词：一定"],
+            "revised_content": "发布前提醒：内容仅作经验分享。",
+            "compliance_summary": {
+                "risk_level": "medium",
+                "issue_count": 1,
+                "issues": ["内容中包含绝对词：一定"],
+                "has_revision": True,
+            },
+        }
+    )
+
+    assert compact["compliance_risk_level"] == "medium"
+    assert compact["compliance_issues"] == ["内容中包含绝对词：一定"]
+    assert compact["revised_content"] == "发布前提醒：内容仅作经验分享。"
+    assert compact["compliance_summary"]["has_revision"] is True
+
+
 def test_http_memory_graph_endpoint_returns_topic_graph(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("XHS_AGENT_API_TOKEN", "secret-token")
     captured: dict = {}

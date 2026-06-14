@@ -318,10 +318,33 @@ def _compact_comment_insights(comment_insights: Any, limit: int = 5) -> List[Dic
     return compacted
 
 
+def _compact_compliance_issues(issues: Any, limit: int = 10) -> List[str]:
+    if not isinstance(issues, list):
+        return []
+    result = []
+    for issue in issues:
+        clean = str(issue or "").strip()
+        if clean:
+            result.append(clean)
+    return result[:limit]
+
+
+def _compliance_summary(risk_level: str, issues: List[str], revised_content: str) -> Dict[str, Any]:
+    return {
+        "risk_level": risk_level,
+        "issue_count": len(issues),
+        "issues": issues[:5],
+        "has_revision": bool(revised_content.strip()),
+    }
+
+
 def record_from_state(state: Dict[str, Any]) -> Dict[str, Any]:
     post_id = str(state.get("post_id") or "").strip()
     record_id = _record_id_from_post_id(post_id or _now_iso())
     performance_data = state.get("performance_data") or {}
+    compliance_risk_level = str(state.get("compliance_risk_level") or "")
+    compliance_issues = _compact_compliance_issues(state.get("compliance_issues"))
+    revised_content = str(state.get("revised_content") or "")
 
     return {
         "record_id": record_id,
@@ -347,6 +370,10 @@ def record_from_state(state: Dict[str, Any]) -> Dict[str, Any]:
         "pain_points": _compact_pain_points(state.get("pain_points")),
         "comment_insights": _compact_comment_insights(state.get("comment_insights")),
         "rag_eligibility": state.get("rag_eligibility") if isinstance(state.get("rag_eligibility"), dict) else {},
+        "compliance_risk_level": compliance_risk_level,
+        "compliance_issues": compliance_issues,
+        "revised_content": revised_content,
+        "compliance_summary": _compliance_summary(compliance_risk_level, compliance_issues, revised_content),
         "performance_data": performance_data,
         "performance_score": performance_score(performance_data),
         "review_summary": state.get("review_summary") or "",

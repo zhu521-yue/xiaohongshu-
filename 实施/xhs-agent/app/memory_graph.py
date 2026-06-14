@@ -292,6 +292,7 @@ def _record_match_fields(record: dict[str, Any], terms: list[str]) -> tuple[list
 def _compliance_match_fields(record: dict[str, Any], terms: list[str]) -> tuple[list[str], list[str]]:
     fields = {
         "compliance_issues": record.get("compliance_issues"),
+        "compliance_summary": record.get("compliance_summary"),
         "compliance_risk_level": record.get("compliance_risk_level"),
         "review_summary": record.get("review_summary"),
         "next_action": record.get("next_action"),
@@ -361,11 +362,16 @@ def _historical_compliance_risks(
         matched_terms, matched_fields = _compliance_match_fields(record, terms)
         if not matched_terms:
             continue
+        compliance_summary = record.get("compliance_summary") if isinstance(record.get("compliance_summary"), dict) else {}
         item = {
             "record_id": record.get("record_id") or "",
             "topic": record.get("topic") or "",
-            "risk_level": record.get("compliance_risk_level") or risk_level,
-            "issues": record.get("compliance_issues") if isinstance(record.get("compliance_issues"), list) else [],
+            "risk_level": record.get("compliance_risk_level") or compliance_summary.get("risk_level") or risk_level,
+            "issues": (
+                record.get("compliance_issues")
+                if isinstance(record.get("compliance_issues"), list)
+                else compliance_summary.get("issues") if isinstance(compliance_summary.get("issues"), list) else []
+            ),
             "matched_terms": matched_terms,
             "matched_fields": matched_fields,
             "reason": "当前合规问题与历史风险记录相似，生成前需要避免重复表达。",
