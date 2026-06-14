@@ -26,6 +26,8 @@ def isolated_api(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("XHS_AGENT_RUN_QUEUE", "local")
     monkeypatch.setenv("XHS_AGENT_MEMORY_STORE", "json")
     monkeypatch.setenv("CREATOR_MODE", "mock")
+    monkeypatch.setenv("COLLECTOR_MODE", "mock")
+    monkeypatch.setenv("LLM_MODEL_NAME", "mock")
     monkeypatch.setattr(api, "RUN_STORE", LocalRunStore(tmp_path / "runs", json_default=api._json_default))
     monkeypatch.setattr(api, "RUNS_DIR", tmp_path / "runs")
     monkeypatch.setattr(api, "RUNTIME_CHECKPOINT_DB_PATH", tmp_path / "runtime.sqlite3", raising=False)

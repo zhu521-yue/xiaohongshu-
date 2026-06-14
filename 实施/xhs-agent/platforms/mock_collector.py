@@ -31,6 +31,8 @@ def collect_topic_samples(topic: str, limit: int = 5) -> dict:
         {"content": f"我最困惑的是{topic}到底该从哪一步开始"},
         {"content": f"网上关于{topic}的说法太多，不知道哪些靠谱"},
         {"content": f"希望有人能把{topic}的避坑点讲清楚"},
+        {"content": f"想要一份{topic}可以直接执行的清单"},
+        {"content": f"有没有适合新手的{topic}具体步骤"},
     ]
 
     return {

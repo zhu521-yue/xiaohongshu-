@@ -1,5 +1,6 @@
 from app.api import _insight_payload
 from nodes import insight_node
+from platforms import mock_collector
 
 
 def test_insight_node_adds_analysis_report_on_success(monkeypatch) -> None:
@@ -89,3 +90,13 @@ def test_insight_node_adds_rag_eligibility(monkeypatch) -> None:
 
     assert "rag_eligibility" in result
     assert "eligible" in result["rag_eligibility"]
+
+
+def test_mock_insight_chain_is_rag_eligible_for_dev_baseline(monkeypatch) -> None:
+    monkeypatch.setattr(insight_node, "collect_topic_insights", mock_collector.collect_topic_insights)
+
+    result = insight_node.analyze_topic_and_pain_points(
+        {"user_topic": "小红书选题", "collect_limit": 1}
+    )
+
+    assert result["rag_eligibility"]["eligible"] is True
