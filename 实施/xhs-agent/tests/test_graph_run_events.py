@@ -56,6 +56,7 @@ def test_run_local_graph_records_node_finished_events(tmp_path: Path, monkeypatc
         "decide_content_strategy",
         "generate_image_text",
         "check_compliance",
+        "refresh_graphrag_memory_after_compliance",
         "human_review",
         "review_performance",
         "write_operation_memory",

@@ -87,6 +87,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Fail LangGraph smoke unless recall_explanation_count is at least this value.",
     )
     parser.add_argument(
+        "--require-recall-explanation-type",
+        action="append",
+        default=[],
+        dest="required_recall_explanation_types",
+        choices=("similar_experience", "historical_compliance_risk"),
+        help="Fail LangGraph smoke unless sampled recall_explanations include this type. Can be repeated.",
+    )
+    parser.add_argument(
         "--seed-recall-memory",
         action="store_true",
         help="Seed local SQLite operation memory with a deterministic record for recall explanation smoke.",
@@ -133,6 +141,9 @@ def _seed_recall_state(topic: str, target_user: str, content_format: str) -> dic
             "blocking_reasons": [],
             "recommended_action": "用于验证 LangGraph M5 召回解释链路。",
         },
+        "compliance_risk_level": "medium",
+        "compliance_issues": ["内容中包含绝对词：一定"],
+        "revised_content": "发布前提醒：避免绝对化承诺，只保留经验分享和过程说明。",
         "performance_data": {"views": 500, "likes": 40, "collects": 30, "comments": 8, "follows": 2},
         "review_summary": f"可控历史种子命中痛点：{pain}",
         "next_action": "后续同类主题继续复用该痛点切入，并观察召回解释是否进入生成上下文。",
@@ -159,7 +170,13 @@ def seed_recall_memory(topic: str, target_user: str, content_format: str) -> dic
     )
 
 
-def build_seed_recall_probe_graph(topic: str, records: list[dict[str, Any]]) -> dict[str, Any]:
+def build_seed_recall_probe_graph(
+    topic: str,
+    records: list[dict[str, Any]],
+    *,
+    compliance_risk_level: str = "",
+    compliance_issues: list[str] | None = None,
+) -> dict[str, Any]:
     from app.memory_graph import query_memory_graph
 
     pain = _seed_recall_pain(topic)
@@ -176,6 +193,8 @@ def build_seed_recall_probe_graph(topic: str, records: list[dict[str, Any]]) -> 
                 "priority": 1,
             }
         ],
+        compliance_risk_level=compliance_risk_level,
+        compliance_issues=compliance_issues or [],
     )
 
 
@@ -213,6 +232,7 @@ def validate_final_run(
     engine: str,
     require_memory_context: bool = False,
     min_recall_explanations: int = 0,
+    required_recall_explanation_types: list[str] | None = None,
 ) -> list[str]:
     issues: list[str] = []
     summary = final.get("summary") if isinstance(final.get("summary"), dict) else {}
@@ -236,6 +256,24 @@ def validate_final_run(
                         "memory_context_summary.recall_explanation_count "
                         f"is {explanation_count}, below required minimum {min_explanations}"
                     )
+                required_types = [
+                    str(item).strip()
+                    for item in (required_recall_explanation_types or [])
+                    if str(item).strip()
+                ]
+                explanations = memory_summary.get("recall_explanations")
+                if required_types and isinstance(explanations, list):
+                    seen_types = {
+                        str(item.get("type") or "").strip()
+                        for item in explanations
+                        if isinstance(item, dict)
+                    }
+                    for required_type in required_types:
+                        if required_type not in seen_types:
+                            issues.append(
+                                "memory_context_summary.recall_explanations "
+                                f"missing required type: {required_type}"
+                            )
     return issues
 
 
@@ -320,6 +358,7 @@ def main() -> int:
         engine=args.engine,
         require_memory_context=args.require_memory_context,
         min_recall_explanations=args.min_recall_explanations,
+        required_recall_explanation_types=args.required_recall_explanation_types,
     )
     if validation_issues:
         _print_json({"validation_issues": validation_issues})

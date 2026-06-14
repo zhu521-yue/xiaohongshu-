@@ -1,5 +1,39 @@
 # 当前工程进度
 
+## 2026-06-14 LangGraph M5 历史合规风险召回解释可控复验
+
+本轮继续主线任务，并保持 LangGraph-first：不在 API 层拼接召回结果，不新增旁路生成流程，而是在 LangGraph 图内增加“合规检查后刷新记忆”的节点，让当前 run 产生 `compliance_issues` 后，可以再用同一套 `query_memory_graph()` 补齐历史合规风险召回解释，并在进入人工审核前暴露到 `memory_context_summary`。
+
+已完成：
+- `nodes/memory_node.py` 新增 `refresh_graphrag_memory_after_compliance()`：仅当当前 run 为 `medium/high` 合规风险且存在 `compliance_issues` 时刷新 `graphrag_memory`；低风险或无合规问题时保持无副作用。
+- `app/graph.py` 的本地兼容执行器和 LangGraph 编排均接入新节点，顺序为 `check_compliance -> refresh_graphrag_memory_after_compliance -> route_compliance_result`，确保合规风险召回发生在图内而不是 API 层。
+- `scripts/check_api_run.py` 的 `--seed-recall-memory` 种子补充结构化合规留痕：`compliance_risk_level=medium`、`compliance_issues=["内容中包含绝对词：一定"]` 和修订提示。
+- `scripts/check_api_run.py` 新增 `--require-recall-explanation-type`，可重复传入 `similar_experience` / `historical_compliance_risk`，用于本地 HTTP smoke 精确要求某类召回解释出现在最终 summary 样本中。
+- `tests/test_memory_node.py` 覆盖合规后刷新能生成 `historical_compliance_risk` 召回解释。
+- `tests/test_langgraph_runtime.py` 覆盖 LangGraph 能在 `check_compliance` 后把合规问题传给刷新节点。
+- `tests/test_graph_run_events.py` 同步本地节点事件顺序，包含 `refresh_graphrag_memory_after_compliance`。
+- `tests/test_check_api_run_auth.py` 覆盖脚本参数、历史合规风险种子探针和指定召回解释类型校验。
+
+验证：
+- RED：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_node.py::test_refresh_graphrag_memory_after_compliance_adds_historical_risk tests/test_langgraph_runtime.py::test_run_graph_thread_refreshes_memory_after_compliance tests/test_check_api_run_auth.py::test_parser_accepts_memory_context_requirements tests/test_check_api_run_auth.py::test_seed_recall_memory_can_probe_historical_compliance_risk tests/test_check_api_run_auth.py::test_validate_final_run_can_require_recall_explanation_type -q` 先出现 `5 failed`，原因分别是新节点、脚本参数、探针入参和校验入参尚不存在。
+- GREEN：同一组定点测试随后 `5 passed`。
+- 相邻回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_node.py tests/test_langgraph_runtime.py tests/test_graph_run_events.py tests/test_check_api_run_auth.py -q` -> `27 passed`。
+- M5/LangGraph 相关回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_check_api_run_auth.py tests/test_api_memory_graph.py tests/test_memory_graph.py tests/test_memory_node.py tests/test_memory_context.py tests/test_generation_memory_context.py tests/test_strategy_memory_context.py tests/test_langgraph_runtime.py tests/test_graph_run_events.py tests/test_api_langgraph_resume.py -q` -> `54 passed`。
+- 可控历史合规风险 HTTP smoke：使用临时 SQLite memory DB 启动 `scripts/run_api.py --host 127.0.0.1 --port 8018`，运行 `scripts/check_api_run.py --base-url http://127.0.0.1:8018 --engine langgraph --topic 小红书新手选题方法一定有效 --collect-limit 1 --timeout 180 --seed-recall-memory --require-memory-context --min-recall-explanations 2 --require-recall-explanation-type similar_experience --require-recall-explanation-type historical_compliance_risk`，run `run_5440f2fc2fde` 最终 `status=success`，`summary.run_status=waiting_review`，`compliance_risk_level=medium`，`memory_context_summary.recall_explanation_count=2`，召回解释类型同时包含 `similar_experience` 和 `historical_compliance_risk`。
+- 编译检查：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes scripts tests` -> exit code 0。
+- 全量测试：首次全量中 `tests/test_api_auth.py::test_http_unauthorized_post_with_malformed_json_returns_401` 出现一次 Windows socket 连接中止；单测复现和同文件回归随后均通过，第二次全量 `D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `328 passed`。
+
+当前限制：
+- 本轮仍只做 mock HTTP 复验，没有触发真实采集、真实发布或真实平台写入。
+- 历史合规风险召回发生在 `check_compliance` 之后，因此用于进入人工审核前的风险可观察和后续修订判断；生成节点首次 prompt 仍消费合规前的主题/痛点记忆上下文。
+- `--require-recall-explanation-type` 当前校验的是 API summary 样本中的召回解释类型；summary 仍只展示前两条解释样本。
+- embedding/向量召回、历史大迁移和复杂图谱可视化仍未完成。
+
+下一步建议：
+- 真实 Cookie 小流量前，先跑普通 `check_api_run.py --engine langgraph`，必要时再跑带 `--seed-recall-memory`、`--require-memory-context` 和 `--require-recall-explanation-type` 的可控 smoke。
+- 如果继续 M5，下一步可评估 embedding/向量检索的最小可测方案，但不要在主链复验前引入重型外部依赖。
+- 如果进入阶段一收口，可优先完善 Cookie 失效提示、长期运行监控和告警，而不是先做公开发布/视频发布/定时发布。
+
 ## 2026-06-14 LangGraph M5 召回解释 smoke 遗留问题收口
 
 本轮在 goal 模式下继续解决遗留问题，并保持 LangGraph-first：不在 API 层伪造召回解释，不新增旁路生成流程，而是补齐可控历史记忆种子、脚本级最小召回解释数校验，并修正 LangGraph 主链节点顺序，让 `retrieve_graphrag_memory` 能在洞察节点之后读取当前痛点和评论洞察。

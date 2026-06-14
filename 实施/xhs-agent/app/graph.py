@@ -20,7 +20,11 @@ from nodes.creator_publish_node import creator_publish_or_skip
 from nodes.human_review_node import human_review
 from nodes.input_node import load_user_input
 from nodes.insight_node import analyze_topic_and_pain_points
-from nodes.memory_node import retrieve_graphrag_memory, write_operation_memory
+from nodes.memory_node import (
+    refresh_graphrag_memory_after_compliance,
+    retrieve_graphrag_memory,
+    write_operation_memory,
+)
 from nodes.publish_node import publish_or_schedule
 from nodes.reject_node import reject_publish
 from nodes.review_node import review_performance
@@ -108,6 +112,13 @@ def run_local_graph(
         state,
         check_compliance,
         node_name="check_compliance",
+        run_id=run_id,
+        event_db_path=event_db_path,
+    )
+    state = _run_node(
+        state,
+        refresh_graphrag_memory_after_compliance,
+        node_name="refresh_graphrag_memory_after_compliance",
         run_id=run_id,
         event_db_path=event_db_path,
     )
@@ -227,6 +238,7 @@ def build_langgraph(*, checkpointer=None):
     graph.add_node("generate_image_text", generate_image_text)
     graph.add_node("generate_video_script", generate_video_script)
     graph.add_node("check_compliance", check_compliance)
+    graph.add_node("refresh_graphrag_memory_after_compliance", refresh_graphrag_memory_after_compliance)
     graph.add_node("revise_content_for_compliance", revise_content_for_compliance)
     graph.add_node("human_review", human_review)
     graph.add_node("publish_or_schedule", publish_or_schedule)
@@ -254,8 +266,10 @@ def build_langgraph(*, checkpointer=None):
     graph.add_edge("generate_image_text", "check_compliance")
     graph.add_edge("generate_video_script", "check_compliance")
 
+    graph.add_edge("check_compliance", "refresh_graphrag_memory_after_compliance")
+
     graph.add_conditional_edges(
-        "check_compliance",
+        "refresh_graphrag_memory_after_compliance",
         route_compliance_result,
         {
             "human_review": "human_review",

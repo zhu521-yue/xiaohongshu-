@@ -90,6 +90,68 @@ def test_run_graph_thread_retrieves_memory_after_insights(tmp_path: Path, monkey
     assert result.state["graphrag_memory"]["recall_explanations"][0]["record_id"] == "op_seed"
 
 
+def test_run_graph_thread_refreshes_memory_after_compliance(tmp_path: Path, monkeypatch) -> None:
+    from app import graph
+
+    captured = {}
+
+    def refresh_after_compliance(state: dict) -> dict:
+        captured["risk_level"] = state.get("compliance_risk_level")
+        captured["issues"] = state.get("compliance_issues")
+        return {
+            "graphrag_memory": {
+                "query": state.get("user_topic"),
+                "recall_explanations": [
+                    {
+                        "type": "historical_compliance_risk",
+                        "record_id": "op_risk_seed",
+                        "matched_terms": ["一定"],
+                        "matched_fields": ["compliance_summary"],
+                        "reason": "当前合规问题与历史风险记录相似。",
+                    }
+                ],
+            }
+        }
+
+    monkeypatch.setattr(graph, "load_user_input", lambda state: {"run_status": "running"})
+    monkeypatch.setattr(graph, "check_account_stage", lambda state: {"account_stage": "cold_start"})
+    monkeypatch.setattr(graph, "analyze_topic_and_pain_points", lambda state: {"pain_points": []})
+    monkeypatch.setattr(graph, "retrieve_graphrag_memory", lambda state: {"retrieved_memory": []})
+    monkeypatch.setattr(
+        graph,
+        "decide_content_strategy",
+        lambda state: {"content_format": "image_text", "content_type": "step_tutorial"},
+    )
+    monkeypatch.setattr(graph, "generate_image_text", lambda state: {"titles": ["T"], "body": "一定有效"})
+    monkeypatch.setattr(
+        graph,
+        "check_compliance",
+        lambda state: {
+            "compliance_risk_level": "medium",
+            "compliance_issues": ["内容中包含绝对词：一定"],
+        },
+    )
+    monkeypatch.setattr(graph, "refresh_graphrag_memory_after_compliance", refresh_after_compliance)
+    monkeypatch.setattr(graph, "revise_content_for_compliance", lambda state: {"revised_content": "已提示"})
+
+    result = run_graph_thread(
+        {
+            "user_topic": "小红书新手选题方法一定有效",
+            "target_user": "user",
+            "user_selected_format": "image_text",
+        },
+        run_id="run_runtime_memory_after_compliance",
+        checkpoint_db_path=tmp_path / "runtime.sqlite3",
+    )
+
+    assert result.interrupted is True
+    assert captured == {
+        "risk_level": "medium",
+        "issues": ["内容中包含绝对词：一定"],
+    }
+    assert result.state["graphrag_memory"]["recall_explanations"][0]["type"] == "historical_compliance_risk"
+
+
 def test_resume_graph_thread_uses_human_review_payload(tmp_path: Path, monkeypatch) -> None:
     from app import graph
 

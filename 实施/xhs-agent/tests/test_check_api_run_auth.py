@@ -29,11 +29,19 @@ def test_parser_accepts_api_token() -> None:
 
 def test_parser_accepts_memory_context_requirements() -> None:
     args = check_api_run.build_parser().parse_args(
-        ["--require-memory-context", "--min-recall-explanations", "2", "--seed-recall-memory"]
+        [
+            "--require-memory-context",
+            "--min-recall-explanations",
+            "2",
+            "--require-recall-explanation-type",
+            "historical_compliance_risk",
+            "--seed-recall-memory",
+        ]
     )
 
     assert args.require_memory_context is True
     assert args.min_recall_explanations == 2
+    assert args.required_recall_explanation_types == ["historical_compliance_risk"]
     assert args.seed_recall_memory is True
 
 
@@ -58,6 +66,34 @@ def test_seed_recall_memory_writes_operation_record_for_mock_recall(tmp_path, mo
     assert records[0]["record_id"] == record["record_id"]
     assert graph["recall_explanations"][0]["type"] == "similar_experience"
     assert "不知道「小红书新手选题方法」从哪里开始，需要清晰的入门步骤" in graph["recall_explanations"][0]["matched_terms"]
+
+
+def test_seed_recall_memory_can_probe_historical_compliance_risk(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XHS_AGENT_MEMORY_STORE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_MEMORY_DB_PATH", str(tmp_path / "memory.sqlite3"))
+    operation_store.MEMORY_BACKEND = None
+    try:
+        check_api_run.seed_recall_memory(
+            topic="小红书新手选题方法一定有效",
+            target_user="内容创作新手",
+            content_format="image_text",
+        )
+
+        records = operation_store.find_relevant_records("小红书新手选题方法一定有效", limit=5)
+        graph = check_api_run.build_seed_recall_probe_graph(
+            "小红书新手选题方法一定有效",
+            records,
+            compliance_risk_level="medium",
+            compliance_issues=["内容中包含绝对词：一定"],
+        )
+    finally:
+        operation_store.MEMORY_BACKEND = None
+
+    assert any(
+        item["type"] == "historical_compliance_risk"
+        for item in graph["recall_explanations"]
+    )
+    assert graph["historical_compliance_risks"][0]["record_id"] == records[0]["record_id"]
 
 
 def test_cli_seed_recall_memory_can_import_project_modules(tmp_path) -> None:
@@ -202,6 +238,35 @@ def test_validate_final_run_can_require_recall_explanation_minimum() -> None:
         engine="langgraph",
         min_recall_explanations=2,
     ) == ["memory_context_summary.recall_explanation_count is 1, below required minimum 2"]
+
+
+def test_validate_final_run_can_require_recall_explanation_type() -> None:
+    final = {
+        "status": "success",
+        "summary": {
+            "run_status": "waiting_review",
+            "memory_context_summary": {
+                "enabled": True,
+                "query": "小红书选题",
+                "graph_record_count": 3,
+                "recommended_content_type_count": 1,
+                "recall_evidence_count": 1,
+                "similar_experience_count": 1,
+                "historical_compliance_risk_count": 0,
+                "recall_explanation_count": 1,
+                "recall_explanations": [{"type": "similar_experience"}],
+            },
+        },
+    }
+
+    assert check_api_run.validate_final_run(
+        final,
+        engine="langgraph",
+        required_recall_explanation_types=["historical_compliance_risk"],
+    ) == [
+        "memory_context_summary.recall_explanations missing required type: "
+        "historical_compliance_risk"
+    ]
 
 
 def test_print_json_handles_gbk_stdout_with_emoji(monkeypatch) -> None:

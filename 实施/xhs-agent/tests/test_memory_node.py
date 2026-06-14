@@ -112,3 +112,41 @@ def test_retrieve_graphrag_memory_passes_current_context(monkeypatch) -> None:
     assert captured["kwargs"]["comment_insights"] == state["comment_insights"]
     assert captured["kwargs"]["compliance_risk_level"] == "medium"
     assert captured["kwargs"]["compliance_issues"] == state["compliance_issues"]
+
+
+def test_refresh_graphrag_memory_after_compliance_adds_historical_risk(monkeypatch) -> None:
+    record = {
+        "record_id": "op_risk_seed",
+        "topic": "小红书新手选题方法一定有效",
+        "title": "历史合规风险种子",
+        "content_type": "step_tutorial",
+        "content_format": "image_text",
+        "pain_points": [],
+        "performance_data": {"views": 300, "likes": 20},
+        "compliance_risk_level": "medium",
+        "compliance_issues": ["内容中包含绝对词：一定"],
+        "compliance_summary": {
+            "risk_level": "medium",
+            "issues": ["内容中包含绝对词：一定"],
+            "has_revision": True,
+        },
+    }
+    monkeypatch.setattr(memory_node, "find_relevant_records", lambda topic, limit=5: [record])
+
+    result = memory_node.refresh_graphrag_memory_after_compliance(
+        {
+            "user_topic": "小红书新手选题方法一定有效",
+            "pain_points": [],
+            "comment_insights": [],
+            "compliance_risk_level": "medium",
+            "compliance_issues": ["内容中包含绝对词：一定"],
+        }
+    )
+
+    risk = result["graphrag_memory"]["historical_compliance_risks"][0]
+    assert risk["record_id"] == "op_risk_seed"
+    assert "一定" in risk["matched_terms"]
+    assert any(
+        item["type"] == "historical_compliance_risk"
+        for item in result["graphrag_memory"]["recall_explanations"]
+    )

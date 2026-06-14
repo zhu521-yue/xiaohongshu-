@@ -51,6 +51,33 @@ def retrieve_graphrag_memory(state: XHSState) -> dict:
     }
 
 
+def refresh_graphrag_memory_after_compliance(state: XHSState) -> dict:
+    risk_level = str(state.get("compliance_risk_level") or "")
+    compliance_issues = state.get("compliance_issues") or []
+    if risk_level not in {"medium", "high"} or not compliance_issues:
+        return {}
+
+    topic = state.get("user_topic", "")
+    retrieved_memory = state.get("retrieved_memory")
+    if not isinstance(retrieved_memory, list) or not retrieved_memory:
+        retrieved_memory = find_relevant_records(topic, limit=5)
+
+    graphrag_memory = query_memory_graph(
+        retrieved_memory,
+        topic=topic,
+        limit=5,
+        pain_points=state.get("pain_points") or [],
+        comment_insights=state.get("comment_insights") or [],
+        compliance_issues=compliance_issues,
+        compliance_risk_level=risk_level,
+    )
+
+    return {
+        "retrieved_memory": retrieved_memory,
+        "graphrag_memory": graphrag_memory,
+    }
+
+
 def write_operation_memory(state: XHSState) -> dict:
     next_action = state.get("next_action") or "发布后录入表现数据，再进行复盘。"
 
