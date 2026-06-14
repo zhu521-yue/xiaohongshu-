@@ -35,6 +35,7 @@ const elements = {
   performanceTrends: $("#performanceTrends"),
   syncCreatorNotesButton: $("#syncCreatorNotesButton"),
   creatorNotesList: $("#creatorNotesList"),
+  memoryRecallEvidence: $("#memoryRecallEvidence"),
   memoryList: $("#memoryList"),
 };
 
@@ -814,6 +815,7 @@ function renderRun(run) {
   if (postId) {
     elements.performanceForm.elements.post_id.value = postId;
   }
+  loadMemoryRecallEvidence(run.request?.topic || run.state?.user_topic || "");
 }
 
 async function loadRun(runId, keepPolling = false) {
@@ -858,6 +860,68 @@ async function refreshShell() {
   renderRunList(runs.runs || []);
   renderMemory(memory.records || []);
   renderPerformanceTrends(performanceTrends.performance_trends || {});
+  if (!state.currentRun) {
+    renderMemoryRecallEvidence(null);
+  }
+}
+
+function renderMemoryRecallEvidence(memoryGraph, errorMessage = "") {
+  if (errorMessage) {
+    elements.memoryRecallEvidence.innerHTML = `<div class="memory-recall-empty">${escapeHtml(errorMessage)}</div>`;
+    return;
+  }
+  if (!memoryGraph || !memoryGraph.graph || !memoryGraph.graph.record_count) {
+    elements.memoryRecallEvidence.innerHTML = `<div class="memory-recall-empty">暂无召回依据</div>`;
+    return;
+  }
+  const recommended = memoryGraph.recommended_content_types || [];
+  const pains = memoryGraph.related_pain_points || [];
+  const evidence = memoryGraph.recall_evidence || [];
+  elements.memoryRecallEvidence.innerHTML = `
+    <div class="memory-recall-head">
+      <strong>召回依据</strong>
+      <span class="mini-pill">${escapeHtml(memoryGraph.graph.record_count)} 条</span>
+    </div>
+    <div class="memory-recall-grid">
+      <div>
+        <span class="metric-label">推荐结构</span>
+        ${
+          recommended.length
+            ? recommended.slice(0, 3).map((item) => `<p>${escapeHtml(item.content_type || "-")} · ${escapeHtml(item.max_score ?? 0)}</p>`).join("")
+            : `<p class="muted">暂无推荐</p>`
+        }
+      </div>
+      <div>
+        <span class="metric-label">相关痛点</span>
+        ${
+          pains.length
+            ? pains.slice(0, 3).map((item) => `<p>${escapeHtml(item.pain || "-")}</p>`).join("")
+            : `<p class="muted">暂无痛点</p>`
+        }
+      </div>
+      <div>
+        <span class="metric-label">召回记录</span>
+        ${
+          evidence.length
+            ? evidence.slice(0, 3).map((item) => `<p>${escapeHtml(item.title || item.topic || item.record_id || "-")}</p>`).join("")
+            : `<p class="muted">暂无记录</p>`
+        }
+      </div>
+    </div>
+  `;
+}
+
+async function loadMemoryRecallEvidence(topic) {
+  if (!topic) {
+    renderMemoryRecallEvidence(null);
+    return;
+  }
+  try {
+    const data = await apiGet(`/memory/graph?topic=${encodeURIComponent(topic)}&limit=5`);
+    renderMemoryRecallEvidence(data.memory_graph || {});
+  } catch (error) {
+    renderMemoryRecallEvidence(null, error.message);
+  }
 }
 
 function renderMemory(records) {

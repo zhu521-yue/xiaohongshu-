@@ -564,6 +564,40 @@ button:disabled {
   overflow: auto;
 }
 
+.memory-recall-evidence {
+  display: grid;
+  gap: 8px;
+  padding: 0 14px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.memory-recall-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.memory-recall-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  gap: 8px;
+}
+
+.memory-recall-grid > div,
+.memory-recall-empty {
+  min-height: 58px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fbfcf9;
+}
+
+.memory-recall-grid p {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+
 .creator-notes-list {
   display: grid;
   gap: 8px;
@@ -767,6 +801,10 @@ button:disabled {
 
   .memory-meta-grid {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .memory-recall-grid {
+    grid-template-columns: 1fr;
   }
 
   .performance-trends-grid {
