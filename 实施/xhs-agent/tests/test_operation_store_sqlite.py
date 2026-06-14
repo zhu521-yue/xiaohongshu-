@@ -106,6 +106,25 @@ def test_sqlite_operation_memory_updates_performance(sqlite_memory: Path) -> Non
     assert store.load_history()["records"][0]["performance_score"] == updated["performance_score"]
 
 
+def test_operation_memory_record_keeps_rag_eligibility(sqlite_memory: Path) -> None:
+    state = sample_state("output/rag-eligible.md")
+    state["rag_eligibility"] = {
+        "eligible": True,
+        "level": "eligible",
+        "score": 82,
+        "reasons": ["评论样本达到最低要求"],
+        "blocking_reasons": [],
+        "recommended_action": "可以进入后续 RAG 入库候选。",
+    }
+
+    saved = store.upsert_record_from_state(state)
+    loaded = store.load_history()["records"][0]
+
+    assert saved["rag_eligibility"]["eligible"] is True
+    assert loaded["rag_eligibility"]["score"] == 82
+    assert loaded["rag_eligibility"]["recommended_action"] == "可以进入后续 RAG 入库候选。"
+
+
 def test_sqlite_operation_memory_filters_cross_domain_health_pollution(sqlite_memory: Path) -> None:
     polluted = sample_state("output/polluted.md", topic="小红书新手选题方法")
     polluted["pain_points"] = [{"pain": "对护理方法存在疑问，担心建议不靠谱", "evidence": "旧脏数据", "priority": 1}]

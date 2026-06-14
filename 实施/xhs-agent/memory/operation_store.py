@@ -346,6 +346,7 @@ def record_from_state(state: Dict[str, Any]) -> Dict[str, Any]:
         "collection_path": state.get("collection_path"),
         "pain_points": _compact_pain_points(state.get("pain_points")),
         "comment_insights": _compact_comment_insights(state.get("comment_insights")),
+        "rag_eligibility": state.get("rag_eligibility") if isinstance(state.get("rag_eligibility"), dict) else {},
         "performance_data": performance_data,
         "performance_score": performance_score(performance_data),
         "review_summary": state.get("review_summary") or "",
