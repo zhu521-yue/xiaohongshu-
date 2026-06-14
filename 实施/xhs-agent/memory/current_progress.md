@@ -1,5 +1,31 @@
 # 当前工程进度
 
+## 2026-06-14 M5 召回解释进入 LangGraph 生成上下文
+
+本轮继续 M5 主线，并明确保持 LangGraph-first：不新增旁路流程，不回到 API 层拼接生成链路，而是把已有 `graphrag_memory.recall_explanations` 压缩进 `nodes.memory_context.build_generation_memory_context()`，让图文/视频生成节点通过 LangGraph state 消费“为什么召回这些相似经验和历史合规风险”。
+
+已完成：
+- `nodes/memory_context.py` 新增召回解释压缩逻辑，输出 `recall_explanations`，包含 `type`、`record_id`、`matched_terms`、`matched_fields` 和 `reason`。
+- 图文与视频生成 prompt payload 继续通过现有 `memory_context` 入口获得召回解释，不新增 prompt 旁路或外部依赖。
+- 空记忆场景保持 `enabled=false`，并返回空 `recall_explanations`，保证冷启动稳定。
+- `AGENTS.md` 已同步 M5 最新状态，避免后续线程误判为只完成前三片。
+
+验证：
+- RED：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_context.py tests/test_generation_memory_context.py -q` 先出现 `5 failed, 4 passed`，失败原因是 `memory_context` 缺少 `recall_explanations`。
+- GREEN：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_context.py tests/test_generation_memory_context.py -q` -> `9 passed`。
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_node.py tests/test_memory_context.py tests/test_strategy_memory_context.py tests/test_generation_memory_context.py -q` -> `21 passed`。
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_langgraph_runtime.py tests/test_graph_run_events.py tests/test_api_langgraph_resume.py -q` -> `11 passed`。
+- `D:\Anaconda\envs\ContentShare\python.exe -m compileall nodes app tests` -> exit code 0。
+
+当前限制：
+- 仍是规则版召回解释，不是 embedding/向量语义召回。
+- 召回解释只进入生成输入和工作台展示，不改变真实平台写入、发布或调度行为。
+- 历史数据仍未做大规模迁移或质量补标。
+
+下一步建议：
+- 优先做一轮 LangGraph-first 真实小流量复验，确认 `graphrag_memory -> memory_context -> 生成 -> 合规 -> human_review` 的链路在真实 run 中可观察。
+- 如果继续 M5，可再评估 embedding/向量召回的最小可测方案，但不要先上重型外部服务。
+
 ## 2026-06-14 M5 合规留痕与召回解释可见化完成
 
 本轮完成 M5 第五片：在第四片规则版相似经验与合规风险召回基础上，补齐 operation memory 的合规字段留痕、API compact 暴露、结构化历史合规风险召回，以及工作台召回解释的轻量展示。

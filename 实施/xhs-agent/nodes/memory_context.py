@@ -163,6 +163,29 @@ def _compact_compliance_risks(memory: dict[str, Any], limit: int) -> list[dict[s
     return result[: max(0, int(limit))]
 
 
+def _compact_recall_explanations(memory: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in _as_list(memory.get("recall_explanations")):
+        item_dict = _as_dict(item)
+        explanation_type = str(item_dict.get("type") or "").strip()
+        record_id = str(item_dict.get("record_id") or "").strip()
+        reason = str(item_dict.get("reason") or "").strip()
+        matched_terms = [str(term) for term in _as_list(item_dict.get("matched_terms")) if str(term).strip()]
+        matched_fields = [str(field) for field in _as_list(item_dict.get("matched_fields")) if str(field).strip()]
+        if not explanation_type and not record_id and not reason and not matched_terms:
+            continue
+        result.append(
+            {
+                "type": explanation_type,
+                "record_id": record_id,
+                "matched_terms": matched_terms[:5],
+                "matched_fields": matched_fields[:5],
+                "reason": reason,
+            }
+        )
+    return result[: max(0, int(limit))]
+
+
 def build_generation_memory_context(state: XHSState, limit: int = 3) -> dict[str, Any]:
     memory = _memory(state)
     recommendations = _compact_recommendations(memory, limit)
@@ -170,7 +193,8 @@ def build_generation_memory_context(state: XHSState, limit: int = 3) -> dict[str
     evidence = _compact_evidence(memory, limit)
     similar_experiences = _compact_similar_experiences(memory, limit)
     compliance_risks = _compact_compliance_risks(memory, limit)
-    enabled = bool(recommendations or pain_points or evidence or similar_experiences or compliance_risks)
+    explanations = _compact_recall_explanations(memory, limit)
+    enabled = bool(recommendations or pain_points or evidence or similar_experiences or compliance_risks or explanations)
 
     return {
         "enabled": enabled,
@@ -180,4 +204,5 @@ def build_generation_memory_context(state: XHSState, limit: int = 3) -> dict[str
         "recall_evidence": evidence,
         "similar_experience_records": similar_experiences,
         "historical_compliance_risks": compliance_risks,
+        "recall_explanations": explanations,
     }

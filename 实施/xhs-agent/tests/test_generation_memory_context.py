@@ -33,6 +33,15 @@ def _state() -> dict:
                     "performance_score": 91,
                 }
             ],
+            "recall_explanations": [
+                {
+                    "type": "similar_experience",
+                    "record_id": "op_1",
+                    "matched_terms": ["第一步"],
+                    "matched_fields": ["pain_points"],
+                    "reason": "当前痛点与历史记录相似。",
+                }
+            ],
         },
     }
 
@@ -60,6 +69,10 @@ def test_image_text_prompt_includes_memory_context(monkeypatch) -> None:
     assert captured["template_name"] == "image_text_generation"
     assert captured["input_payload"]["memory_context"]["enabled"] is True
     assert captured["input_payload"]["memory_context"]["recall_evidence"][0]["record_id"] == "op_1"
+    assert (
+        captured["input_payload"]["memory_context"]["recall_explanations"][0]["type"]
+        == "similar_experience"
+    )
 
 
 def test_video_prompt_includes_memory_context(monkeypatch) -> None:
@@ -120,4 +133,5 @@ def test_generation_prompt_uses_disabled_memory_context_when_empty(monkeypatch) 
         "recall_evidence": [],
         "similar_experience_records": [],
         "historical_compliance_risks": [],
+        "recall_explanations": [],
     }

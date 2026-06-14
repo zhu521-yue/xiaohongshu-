@@ -119,6 +119,7 @@ def test_generation_memory_context_compacts_and_limits_fields() -> None:
         ],
         "similar_experience_records": [],
         "historical_compliance_risks": [],
+        "recall_explanations": [],
     }
 
 
@@ -133,6 +134,7 @@ def test_empty_generation_memory_context_is_disabled() -> None:
         "recall_evidence": [],
         "similar_experience_records": [],
         "historical_compliance_risks": [],
+        "recall_explanations": [],
     }
     assert has_memory_evidence({}) is False
 
@@ -161,6 +163,22 @@ def test_generation_memory_context_includes_rule_based_recall() -> None:
                         "reason": "当前合规问题与历史风险相似。",
                     }
                 ],
+                "recall_explanations": [
+                    {
+                        "type": "similar_experience",
+                        "record_id": "op_tool",
+                        "matched_terms": ["担心踩坑浪费时间"],
+                        "matched_fields": ["pain_points"],
+                        "reason": "当前痛点与历史记录相似。",
+                    },
+                    {
+                        "type": "historical_compliance_risk",
+                        "record_id": "op_risk",
+                        "matched_terms": ["一定"],
+                        "matched_fields": ["compliance_summary"],
+                        "reason": "当前合规问题与历史风险相似。",
+                    },
+                ],
             }
         )
     )
@@ -168,3 +186,19 @@ def test_generation_memory_context_includes_rule_based_recall() -> None:
     assert context["enabled"] is True
     assert context["similar_experience_records"][0]["record_id"] == "op_tool"
     assert context["historical_compliance_risks"][0]["risk_level"] == "medium"
+    assert context["recall_explanations"] == [
+        {
+            "type": "similar_experience",
+            "record_id": "op_tool",
+            "matched_terms": ["担心踩坑浪费时间"],
+            "matched_fields": ["pain_points"],
+            "reason": "当前痛点与历史记录相似。",
+        },
+        {
+            "type": "historical_compliance_risk",
+            "record_id": "op_risk",
+            "matched_terms": ["一定"],
+            "matched_fields": ["compliance_summary"],
+            "reason": "当前合规问题与历史风险相似。",
+        },
+    ]
