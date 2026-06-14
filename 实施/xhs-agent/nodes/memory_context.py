@@ -121,12 +121,56 @@ def _compact_evidence(memory: dict[str, Any], limit: int) -> list[dict[str, Any]
     return result[: max(0, int(limit))]
 
 
+def _compact_similar_experiences(memory: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in _as_list(memory.get("similar_experience_records")):
+        item_dict = _as_dict(item)
+        record_id = str(item_dict.get("record_id") or "").strip()
+        title = str(item_dict.get("title") or "").strip()
+        topic = str(item_dict.get("topic") or "").strip()
+        if not record_id and not title and not topic:
+            continue
+        result.append(
+            {
+                "record_id": record_id,
+                "topic": topic,
+                "title": title,
+                "content_type": str(item_dict.get("content_type") or ""),
+                "performance_score": _safe_int(item_dict.get("performance_score")),
+                "reason": str(item_dict.get("reason") or ""),
+            }
+        )
+    return result[: max(0, int(limit))]
+
+
+def _compact_compliance_risks(memory: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in _as_list(memory.get("historical_compliance_risks")):
+        item_dict = _as_dict(item)
+        record_id = str(item_dict.get("record_id") or "").strip()
+        reason = str(item_dict.get("reason") or "").strip()
+        if not record_id and not reason:
+            continue
+        issues = [str(issue) for issue in _as_list(item_dict.get("issues")) if str(issue).strip()]
+        result.append(
+            {
+                "record_id": record_id,
+                "risk_level": str(item_dict.get("risk_level") or ""),
+                "issues": issues,
+                "reason": reason,
+            }
+        )
+    return result[: max(0, int(limit))]
+
+
 def build_generation_memory_context(state: XHSState, limit: int = 3) -> dict[str, Any]:
     memory = _memory(state)
     recommendations = _compact_recommendations(memory, limit)
     pain_points = _compact_pain_points(memory, limit)
     evidence = _compact_evidence(memory, limit)
-    enabled = bool(recommendations or pain_points or evidence)
+    similar_experiences = _compact_similar_experiences(memory, limit)
+    compliance_risks = _compact_compliance_risks(memory, limit)
+    enabled = bool(recommendations or pain_points or evidence or similar_experiences or compliance_risks)
 
     return {
         "enabled": enabled,
@@ -134,4 +178,6 @@ def build_generation_memory_context(state: XHSState, limit: int = 3) -> dict[str
         "recommended_content_types": recommendations,
         "related_pain_points": pain_points,
         "recall_evidence": evidence,
+        "similar_experience_records": similar_experiences,
+        "historical_compliance_risks": compliance_risks,
     }

@@ -118,4 +118,6 @@ def test_generation_prompt_uses_disabled_memory_context_when_empty(monkeypatch) 
         "recommended_content_types": [],
         "related_pain_points": [],
         "recall_evidence": [],
+        "similar_experience_records": [],
+        "historical_compliance_risks": [],
     }

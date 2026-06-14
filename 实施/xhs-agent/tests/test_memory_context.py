@@ -117,6 +117,8 @@ def test_generation_memory_context_compacts_and_limits_fields() -> None:
                 "performance_score": 90,
             }
         ],
+        "similar_experience_records": [],
+        "historical_compliance_risks": [],
     }
 
 
@@ -129,5 +131,40 @@ def test_empty_generation_memory_context_is_disabled() -> None:
         "recommended_content_types": [],
         "related_pain_points": [],
         "recall_evidence": [],
+        "similar_experience_records": [],
+        "historical_compliance_risks": [],
     }
     assert has_memory_evidence({}) is False
+
+
+def test_generation_memory_context_includes_rule_based_recall() -> None:
+    context = build_generation_memory_context(
+        _state(
+            {
+                "query": "小红书选题",
+                "similar_experience_records": [
+                    {
+                        "record_id": "op_tool",
+                        "topic": "自由职业接单避坑",
+                        "title": "避坑标题",
+                        "content_type": "avoid_mistakes",
+                        "performance_score": 45,
+                        "reason": "当前痛点与历史记录相似。",
+                        "matched_terms": ["担心踩坑浪费时间"],
+                    }
+                ],
+                "historical_compliance_risks": [
+                    {
+                        "record_id": "op_risk",
+                        "risk_level": "medium",
+                        "issues": ["内容中包含绝对词：一定"],
+                        "reason": "当前合规问题与历史风险相似。",
+                    }
+                ],
+            }
+        )
+    )
+
+    assert context["enabled"] is True
+    assert context["similar_experience_records"][0]["record_id"] == "op_tool"
+    assert context["historical_compliance_risks"][0]["risk_level"] == "medium"

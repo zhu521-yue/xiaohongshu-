@@ -34,7 +34,15 @@ def retrieve_graphrag_memory(state: XHSState) -> dict:
     topic = state.get("user_topic", "")
     retrieved_memory = find_relevant_records(topic, limit=5)
     successful_patterns = find_successful_patterns(topic, limit=3)
-    graphrag_memory = query_memory_graph(retrieved_memory, topic=topic, limit=5)
+    graphrag_memory = query_memory_graph(
+        retrieved_memory,
+        topic=topic,
+        limit=5,
+        pain_points=state.get("pain_points") or [],
+        comment_insights=state.get("comment_insights") or [],
+        compliance_issues=state.get("compliance_issues") or [],
+        compliance_risk_level=state.get("compliance_risk_level") or "",
+    )
 
     return {
         "retrieved_memory": retrieved_memory,

@@ -92,3 +92,60 @@ def test_query_memory_graph_returns_related_records_and_recall_evidence() -> Non
     assert result["related_pain_points"][0]["pain"] == "担心踩坑浪费时间"
     assert result["recall_evidence"][0]["record_id"] == "op_b"
     assert result["graph"]["record_count"] == 2
+
+
+def test_query_memory_graph_returns_cross_topic_similar_experience() -> None:
+    records = [
+        _record(
+            "op_tool",
+            topic="自由职业接单避坑",
+            content_type="avoid_mistakes",
+            score=45,
+            pain="担心踩坑浪费时间",
+        ),
+        _record(
+            "op_unrelated",
+            topic="宝宝湿疹护理",
+            content_type="qa_education",
+            score=99,
+            pain="担心护理方式不靠谱",
+        ),
+    ]
+
+    result = memory_graph.query_memory_graph(
+        records,
+        topic="小红书选题",
+        limit=5,
+        pain_points=[{"pain": "担心踩坑浪费时间", "evidence": "不知道是否值得继续做"}],
+    )
+
+    assert result["similar_experience_records"][0]["record_id"] == "op_tool"
+    assert "担心踩坑浪费时间" in result["similar_experience_records"][0]["matched_terms"]
+    assert result["similar_experience_records"][0]["reason"]
+    assert result["similar_pain_points"][0]["pain"] == "担心踩坑浪费时间"
+    assert not any(item["record_id"] == "op_unrelated" for item in result["similar_experience_records"])
+
+
+def test_query_memory_graph_returns_historical_compliance_risks() -> None:
+    record = _record(
+        "op_risk",
+        topic="小红书涨粉话题",
+        content_type="avoid_mistakes",
+        score=20,
+        pain="担心表达太夸张",
+    )
+    record["compliance_risk_level"] = "medium"
+    record["compliance_issues"] = ["内容中包含绝对词：一定"]
+
+    result = memory_graph.query_memory_graph(
+        [record],
+        topic="小红书选题",
+        limit=5,
+        compliance_risk_level="medium",
+        compliance_issues=["内容中包含绝对词：一定"],
+    )
+
+    assert result["historical_compliance_risks"][0]["record_id"] == "op_risk"
+    assert result["historical_compliance_risks"][0]["risk_level"] == "medium"
+    assert "一定" in result["historical_compliance_risks"][0]["matched_terms"]
+    assert any(item["type"] == "historical_compliance_risk" for item in result["recall_explanations"])

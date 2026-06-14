@@ -1,18 +1,32 @@
 # 当前工程进度
 
-## 2026-06-14 M5 规则版相似经验与合规风险召回设计确认
+## 2026-06-14 M5 规则版相似经验与合规风险召回完成
 
-本轮开始 M5 第四片设计：在不引入 embedding、向量库、图数据库或新外部服务的前提下，先用规则版增强现有 `graphrag_memory`，让系统能基于当前痛点和合规风险召回跨主题相似经验与历史风险提醒。
+本轮完成 M5 第四片：在不引入 embedding、向量库、图数据库或新外部服务的前提下，用规则版增强现有 `graphrag_memory`，让系统能基于当前痛点和合规风险召回跨主题相似经验与历史风险提醒。
 
 已完成：
 - 已确认采用“规则版召回增强”方案，而不是直接进入 embedding/向量检索。
 - 已新增中文设计文档：`docs/superpowers/specs/2026-06-14-m5-rule-based-recall-enhancement-design.md`。
-- 设计范围包含 `app/memory_graph.py`、`nodes/memory_node.py` 和 `nodes/memory_context.py` 的召回上下文与生成上下文扩展。
+- 已新增中文实施计划：`docs/superpowers/plans/2026-06-14-m5-rule-based-recall-enhancement.md`。
+- `app/memory_graph.py` 支持传入当前痛点、评论洞察和合规信息，并返回 `similar_experience_records`、`similar_pain_points`、`historical_compliance_risks` 和 `recall_explanations`。
+- `nodes/memory_node.retrieve_graphrag_memory()` 会把当前 state 的痛点、评论洞察、合规风险等级和合规 issue 传给图谱召回层。
+- `nodes/memory_context.py` 会把相似经验和历史合规风险压缩进生成上下文，并继续控制字段长度。
 - 明确本轮不改变真实平台写入、不改变 RAG 入库门槛、不做历史大迁移、不新增复杂前端图谱。
 
+验证：
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_node.py tests/test_memory_context.py -q` -> `14 passed`。
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_strategy_memory_context.py tests/test_generation_memory_context.py tests/test_api_memory_graph.py -q` -> `9 passed`。
+- `D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes memory tests` -> exit code 0。
+
+当前限制：
+- 本轮仍是规则版召回，不是 embedding/向量检索。
+- operation memory 仍未统一保存完整 `compliance_issues` / `compliance_risk_level`，历史风险召回会优先使用已有字段，并兼容扫描复盘摘要、下一步建议等文本。
+- 工作台暂未展示新增的相似经验和历史风险提醒。
+
 下一步：
-- 等用户确认设计文档后，进入实施计划阶段。
-- 实施计划应继续使用 TDD，优先覆盖相似经验召回、历史合规风险召回、记忆节点传参和生成上下文压缩。
+- 可继续评估 embedding/向量检索的最小可测方案。
+- 可补 operation memory 的合规字段留痕，提高历史风险召回质量。
+- 可把新增召回解释展示到工作台召回依据区。
 
 ## 2026-06-14 手动合并后的遗留问题收口
 

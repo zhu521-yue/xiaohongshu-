@@ -10,7 +10,7 @@ def test_retrieve_graphrag_memory_includes_graph_view(monkeypatch) -> None:
     monkeypatch.setattr(memory_node, "find_relevant_records", lambda topic, limit=5: records)
     monkeypatch.setattr(memory_node, "find_successful_patterns", lambda topic, limit=3: [])
 
-    def fake_query(records_arg, *, topic: str, limit: int = 20) -> dict:
+    def fake_query(records_arg, *, topic: str, limit: int = 20, **kwargs) -> dict:
         captured["records"] = records_arg
         captured["topic"] = topic
         captured["limit"] = limit
@@ -79,3 +79,36 @@ def test_write_operation_memory_allows_legacy_state_without_rag_eligibility(monk
     assert result["operation_memory_written"] is True
     assert result["operation_record_id"] == "op_legacy"
     assert "operation_memory_skip_reason" not in result
+
+
+def test_retrieve_graphrag_memory_passes_current_context(monkeypatch) -> None:
+    captured: dict = {}
+
+    monkeypatch.setattr(memory_node, "find_relevant_records", lambda topic, limit=5: [], raising=False)
+    monkeypatch.setattr(memory_node, "find_successful_patterns", lambda topic, limit=3: [], raising=False)
+
+    def fake_query(records_arg, *, topic: str, limit: int = 20, **kwargs) -> dict:
+        captured["records"] = records_arg
+        captured["topic"] = topic
+        captured["limit"] = limit
+        captured["kwargs"] = kwargs
+        return {"query": topic, "similar_experience_records": []}
+
+    monkeypatch.setattr(memory_node, "query_memory_graph", fake_query, raising=False)
+
+    state = {
+        "user_topic": "小红书选题",
+        "pain_points": [{"pain": "担心踩坑浪费时间"}],
+        "comment_insights": [{"pain": "不知道从哪里开始"}],
+        "compliance_risk_level": "medium",
+        "compliance_issues": ["内容中包含绝对词：一定"],
+    }
+
+    memory_node.retrieve_graphrag_memory(state)
+
+    assert captured["topic"] == "小红书选题"
+    assert captured["limit"] == 5
+    assert captured["kwargs"]["pain_points"] == state["pain_points"]
+    assert captured["kwargs"]["comment_insights"] == state["comment_insights"]
+    assert captured["kwargs"]["compliance_risk_level"] == "medium"
+    assert captured["kwargs"]["compliance_issues"] == state["compliance_issues"]
