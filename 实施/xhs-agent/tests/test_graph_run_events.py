@@ -51,8 +51,8 @@ def test_run_local_graph_records_node_finished_events(tmp_path: Path, monkeypatc
     assert node_names == [
         "load_user_input",
         "check_account_stage",
-        "retrieve_graphrag_memory",
         "analyze_topic_and_pain_points",
+        "retrieve_graphrag_memory",
         "decide_content_strategy",
         "generate_image_text",
         "check_compliance",

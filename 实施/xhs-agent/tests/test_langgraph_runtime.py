@@ -35,6 +35,61 @@ def test_run_graph_thread_interrupts_with_run_id_thread(tmp_path: Path, monkeypa
     assert result.interrupt_payload["run_id"] == "run_runtime_interrupt"
 
 
+def test_run_graph_thread_retrieves_memory_after_insights(tmp_path: Path, monkeypatch) -> None:
+    from app import graph
+
+    captured = {}
+    pain_points = [{"pain": "不知道「小红书新手选题方法」从哪里开始，需要清晰的入门步骤"}]
+
+    def retrieve_with_current_context(state: dict) -> dict:
+        captured["pain_points"] = state.get("pain_points")
+        return {
+            "retrieved_memory": [],
+            "graphrag_memory": {
+                "query": state.get("user_topic"),
+                "recall_explanations": [
+                    {
+                        "type": "similar_experience",
+                        "record_id": "op_seed",
+                        "matched_terms": [pain_points[0]["pain"]],
+                        "matched_fields": ["pain_points"],
+                        "reason": "当前痛点与历史记录相似。",
+                    }
+                ],
+            },
+        }
+
+    monkeypatch.setattr(graph, "load_user_input", lambda state: {"run_status": "running"})
+    monkeypatch.setattr(graph, "check_account_stage", lambda state: {"account_stage": "cold_start"})
+    monkeypatch.setattr(
+        graph,
+        "analyze_topic_and_pain_points",
+        lambda state: {"pain_points": pain_points, "comment_insights": []},
+    )
+    monkeypatch.setattr(graph, "retrieve_graphrag_memory", retrieve_with_current_context)
+    monkeypatch.setattr(
+        graph,
+        "decide_content_strategy",
+        lambda state: {"content_format": "image_text", "content_type": "step_tutorial"},
+    )
+    monkeypatch.setattr(graph, "generate_image_text", lambda state: {"titles": ["T"], "body": "B"})
+    monkeypatch.setattr(graph, "check_compliance", lambda state: {"compliance_risk_level": "low"})
+
+    result = run_graph_thread(
+        {
+            "user_topic": "小红书新手选题方法",
+            "target_user": "user",
+            "user_selected_format": "image_text",
+        },
+        run_id="run_runtime_memory_after_insights",
+        checkpoint_db_path=tmp_path / "runtime.sqlite3",
+    )
+
+    assert result.interrupted is True
+    assert captured["pain_points"] == pain_points
+    assert result.state["graphrag_memory"]["recall_explanations"][0]["record_id"] == "op_seed"
+
+
 def test_resume_graph_thread_uses_human_review_payload(tmp_path: Path, monkeypatch) -> None:
     from app import graph
 

@@ -29,7 +29,7 @@
 - M2 只读采集：部分完成。已有 collector 薄封装、Spider_XHS 采集、评论去噪、去标识化和候选池评分初版；评论质量评分细化、Cookie 失效产品化提示仍需继续完善。
 - M3 复盘闭环 + 运营记忆：基本完成，并已扩展 SQLite operation memory、业务表、表现录入反向同步、复盘、运营记忆前端展示和历史表现补偿脚本。
 - M4 创作者平台发布：部分完成。已验证 LangGraph-first 私密图文发布、真实图片素材绑定、作品列表同步、发布状态等待、表现回填、平台指标手动/批量同步、脚本循环同步、趋势摘要和工作台同步入口；公开发布、定时发布、视频发布、后台常驻定时调度仍未完成。
-- M5 GraphRAG 运营记忆增强：已完成五片规则版闭环，并继续沿 LangGraph-first 主链增强。当前已有基于 operation memory 的图谱视图与 `GET /memory/graph` 查询初版，LangGraph 记忆节点已返回 `graphrag_memory`，策略/生成节点已消费图谱记忆；`rag_eligibility` 已开始控制长期运营记忆写入，工作台已支持轻量查看召回依据、相似经验、历史合规风险和召回解释；召回解释也已进入图文/视频生成的 `memory_context`。脚本级 mock smoke 已能结构化校验 `memory_context_summary`，并可用 `--require-memory-context` / `--min-recall-explanations` 对有历史记忆的 LangGraph run 做更强复验。向量检索、embedding、跨主题语义召回、历史大迁移和复杂图谱可视化仍未完成。
+- M5 GraphRAG 运营记忆增强：已完成五片规则版闭环，并继续沿 LangGraph-first 主链增强。当前已有基于 operation memory 的图谱视图与 `GET /memory/graph` 查询初版，LangGraph 记忆节点已返回 `graphrag_memory`，策略/生成节点已消费图谱记忆；`rag_eligibility` 已开始控制长期运营记忆写入，工作台已支持轻量查看召回依据、相似经验、历史合规风险和召回解释；召回解释也已进入图文/视频生成的 `memory_context`。脚本级 mock smoke 已能结构化校验 `memory_context_summary`，并可用 `--require-memory-context` / `--min-recall-explanations` 对有历史记忆的 LangGraph run 做更强复验；`--seed-recall-memory` 已可在临时 SQLite operation memory 中种入可控历史记录，复验 `similar_experience` 召回解释。LangGraph 主链顺序已调整为先洞察、再记忆召回，确保记忆节点能消费当前痛点和评论洞察。向量检索、embedding、跨主题语义召回、历史大迁移和复杂图谱可视化仍未完成。
 - M6 阶段二软广 + 达人：未完成。
 - M17a 已完成最小生产护栏：API token、日志落盘、敏感字段脱敏、运行配置检查和 token 烟测。
 - M17b 已完成启动模板：本地 API、SQLite API、SQLite worker 的 PowerShell 模板，并明确优先使用 `D:\Anaconda\envs\ContentShare\python.exe`。
@@ -44,7 +44,7 @@
 - M25 已完成平台安全护栏：Cookie 预检、发布日限、随机延时、失败停手和本地 guardrail 状态记录。
 - M26 已完成发布状态等待：按需只读轮询 creator 作品列表，避免私密发布后短暂 `not_found` 误判。
 - 最新运行时主线已收敛为 LangGraph-first：API/CLI 默认 `engine=langgraph`，`engine=local` 仅保留为显式兼容路径。
-- 最近验证状态：LangGraph M5 smoke 校验增强后，脚本/API/M5/LangGraph resume 相关回归 `28 passed`，M5/LangGraph 主链回归 `19 passed`，`compileall app nodes scripts tests` 通过；普通 mock HTTP smoke 通过，run `run_0a8e2cf57324` 最终 `status=success`、`summary.run_status=waiting_review`、`memory_context_summary.enabled=true`；带 `--require-memory-context` 的 mock HTTP smoke 通过，run `run_69de3ac17c13` 最终 `status=success`、`summary.run_status=waiting_review`、`memory_context_summary.enabled=true`。此前 LangGraph M5 记忆上下文可观测性增强后，API/M5/脚本回归 `23 passed`，M5/LangGraph 主链回归 `19 passed`，`compileall app nodes scripts tests` 通过；旧 SQLite stack 健康/停止/日志脚本定点测试 `9 passed`，健康脚本 `-ConfigOnly` / `-SkipApi` 通过，停止脚本 dry-run 通过，日志脚本通过；真实 creator 只读批量同步通过，`total=2`、`succeeded=2`、`failed=0`。
+- 最近验证状态：LangGraph M5 召回解释 smoke 遗留问题收口后，脚本/API/M5/LangGraph resume 相关回归 `30 passed`，M5/LangGraph 主链回归 `20 passed`，`compileall app nodes scripts tests` 通过；可控召回解释 mock HTTP smoke 通过，run `run_584e57d84df8` 最终 `status=success`、`summary.run_status=waiting_review`、`memory_context_summary.recall_explanation_count=1`、召回解释类型为 `similar_experience`。此前 LangGraph M5 smoke 校验增强后，普通 mock HTTP smoke 通过，run `run_0a8e2cf57324` 最终 `status=success`、`summary.run_status=waiting_review`、`memory_context_summary.enabled=true`；带 `--require-memory-context` 的 mock HTTP smoke 通过，run `run_69de3ac17c13` 最终 `status=success`、`summary.run_status=waiting_review`、`memory_context_summary.enabled=true`。旧 SQLite stack 健康/停止/日志脚本定点测试 `9 passed`，健康脚本 `-ConfigOnly` / `-SkipApi` 通过，停止脚本 dry-run 通过，日志脚本通过；真实 creator 只读批量同步通过，`total=2`、`succeeded=2`、`failed=0`。
 
 ## 从0手册对照后的未完成主线
 
@@ -91,8 +91,8 @@
 
 ## 当前工作树提示
 
-- 最近主线代码已包含 M5 第五片合规留痕与召回解释可见化、召回解释进入 LangGraph 生成上下文，以及 LangGraph M5 smoke 校验增强；本地 `master` 继续领先 `origin/master`，远端同步主要走现有 PR 分支。
-- 当前合理变更范围是 `app/api.py`、`scripts/check_api_run.py`、相关测试和项目记忆文件；新线程开始后，先跑 `git status --short --branch` 和必要测试，确认工作树状态。
+- 最近主线代码已包含 M5 第五片合规留痕与召回解释可见化、召回解释进入 LangGraph 生成上下文、LangGraph M5 smoke 校验增强，以及可控召回解释 smoke 与节点顺序修复；本地 `master` 继续领先 `origin/master`，远端同步主要走现有 PR 分支。
+- 当前合理变更范围是 `app/graph.py`、`scripts/check_api_run.py`、相关测试和项目记忆文件；新线程开始后，先跑 `git status --short --branch` 和必要测试，确认工作树状态。
 - 不要并行运行多个 pytest 命令：`pytest.ini` 固定 `--basetemp=data/pytest_tmp_safe`，并行 pytest 会争用同一临时目录，可能导致 setup 阶段 `FileNotFoundError`。
 - 远端 `origin/master` 是否已经同步需要重新 `git fetch origin` 后确认；当前环境曾因 `.git/FETCH_HEAD` 权限无法自动 fetch，必要时由用户手动核验。
 - 旧 worktree `.worktrees/m5-rag-eligibility-recall-evidence` 已在用户授权后用 `git worktree remove` 清理；本地分支 `codex/m5-rag-eligibility-recall-evidence` 仍保留，后续如确认不再需要可再单独删除。

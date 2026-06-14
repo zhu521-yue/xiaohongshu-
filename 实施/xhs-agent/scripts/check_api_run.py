@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 import requests
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 MEMORY_CONTEXT_COUNT_KEYS = (
@@ -79,7 +86,97 @@ def build_parser() -> argparse.ArgumentParser:
         default=0,
         help="Fail LangGraph smoke unless recall_explanation_count is at least this value.",
     )
+    parser.add_argument(
+        "--seed-recall-memory",
+        action="store_true",
+        help="Seed local SQLite operation memory with a deterministic record for recall explanation smoke.",
+    )
     return parser
+
+
+def _seed_recall_pain(topic: str) -> str:
+    return f"不知道「{topic}」从哪里开始，需要清晰的入门步骤"
+
+
+def _seed_recall_state(topic: str, target_user: str, content_format: str) -> dict[str, Any]:
+    pain = _seed_recall_pain(topic)
+    return {
+        "post_id": f"seed://m5-recall/{topic}/{content_format}",
+        "user_topic": topic,
+        "target_user": target_user,
+        "account_stage": "cold_start",
+        "content_type": "step_tutorial",
+        "content_format": content_format,
+        "titles": [f"{topic}历史召回种子"],
+        "publish_status": "success",
+        "publish_time": "2026-06-14T00:00:00",
+        "pain_points": [
+            {
+                "pain": pain,
+                "evidence": f"历史记录用于验证 {topic} 的召回解释链路。",
+                "priority": 1,
+            }
+        ],
+        "comment_insights": [
+            {
+                "pain": pain,
+                "evidence_comments": [f"我最困惑的是{topic}到底该从哪一步开始"],
+                "evidence_count": 1,
+                "priority": 1,
+            }
+        ],
+        "rag_eligibility": {
+            "eligible": True,
+            "level": "eligible",
+            "score": 90,
+            "reasons": ["可控 smoke 种子"],
+            "blocking_reasons": [],
+            "recommended_action": "用于验证 LangGraph M5 召回解释链路。",
+        },
+        "performance_data": {"views": 500, "likes": 40, "collects": 30, "comments": 8, "follows": 2},
+        "review_summary": f"可控历史种子命中痛点：{pain}",
+        "next_action": "后续同类主题继续复用该痛点切入，并观察召回解释是否进入生成上下文。",
+    }
+
+
+def _require_sqlite_memory_backend_for_seed() -> None:
+    memory_store = os.getenv("XHS_AGENT_MEMORY_STORE", "").strip().lower()
+    memory_db_path = os.getenv("XHS_AGENT_MEMORY_DB_PATH", "").strip()
+    if memory_store != "sqlite" or not memory_db_path:
+        raise RuntimeError(
+            "--seed-recall-memory requires XHS_AGENT_MEMORY_STORE=sqlite "
+            "and XHS_AGENT_MEMORY_DB_PATH to avoid modifying default JSON operation memory"
+        )
+
+
+def seed_recall_memory(topic: str, target_user: str, content_format: str) -> dict[str, Any]:
+    _require_sqlite_memory_backend_for_seed()
+    from memory import operation_store
+
+    operation_store.MEMORY_BACKEND = None
+    return operation_store.upsert_record_from_state(
+        _seed_recall_state(topic, target_user, content_format)
+    )
+
+
+def build_seed_recall_probe_graph(topic: str, records: list[dict[str, Any]]) -> dict[str, Any]:
+    from app.memory_graph import query_memory_graph
+
+    pain = _seed_recall_pain(topic)
+    return query_memory_graph(
+        records,
+        topic=topic,
+        limit=5,
+        pain_points=[{"pain": pain, "evidence": "seed probe"}],
+        comment_insights=[
+            {
+                "pain": pain,
+                "evidence_comments": ["seed probe"],
+                "evidence_count": 1,
+                "priority": 1,
+            }
+        ],
+    )
 
 
 def _is_non_negative_int(value: Any) -> bool:
@@ -155,6 +252,18 @@ def main() -> int:
         "approve": args.approve,
         "collect_limit": args.collect_limit,
     }
+
+    if args.seed_recall_memory:
+        try:
+            seed_record = seed_recall_memory(
+                topic=args.topic,
+                target_user=args.target_user,
+                content_format=args.content_format,
+            )
+        except Exception as exc:
+            _print_line(f"seed recall memory failed: {exc}")
+            return 2
+        _print_line("seed_recall_record_id:", seed_record.get("record_id"))
 
     try:
         response = requests.post(f"{base_url}/runs", json=payload, headers=headers, timeout=30)

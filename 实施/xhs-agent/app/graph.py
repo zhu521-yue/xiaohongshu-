@@ -75,8 +75,8 @@ def run_local_graph(
     for node_name, node in (
         ("load_user_input", load_user_input),
         ("check_account_stage", check_account_stage),
-        ("retrieve_graphrag_memory", retrieve_graphrag_memory),
         ("analyze_topic_and_pain_points", analyze_topic_and_pain_points),
+        ("retrieve_graphrag_memory", retrieve_graphrag_memory),
         ("decide_content_strategy", decide_content_strategy),
     ):
         state = _run_node(
@@ -237,9 +237,9 @@ def build_langgraph(*, checkpointer=None):
 
     graph.add_edge(START, "load_user_input")
     graph.add_edge("load_user_input", "check_account_stage")
-    graph.add_edge("check_account_stage", "retrieve_graphrag_memory")
-    graph.add_edge("retrieve_graphrag_memory", "analyze_topic_and_pain_points")
-    graph.add_edge("analyze_topic_and_pain_points", "decide_content_strategy")
+    graph.add_edge("check_account_stage", "analyze_topic_and_pain_points")
+    graph.add_edge("analyze_topic_and_pain_points", "retrieve_graphrag_memory")
+    graph.add_edge("retrieve_graphrag_memory", "decide_content_strategy")
 
     graph.add_conditional_edges(
         "decide_content_strategy",

@@ -1,5 +1,43 @@
 # 当前工程进度
 
+## 2026-06-14 LangGraph M5 召回解释 smoke 遗留问题收口
+
+本轮在 goal 模式下继续解决遗留问题，并保持 LangGraph-first：不在 API 层伪造召回解释，不新增旁路生成流程，而是补齐可控历史记忆种子、脚本级最小召回解释数校验，并修正 LangGraph 主链节点顺序，让 `retrieve_graphrag_memory` 能在洞察节点之后读取当前痛点和评论洞察。
+
+已完成：
+- `scripts/check_api_run.py` 新增 `--seed-recall-memory`，会在本地 SQLite operation memory 中写入一条确定性的历史记录，用于验证相似经验召回解释。
+- `--seed-recall-memory` 只允许在显式 `XHS_AGENT_MEMORY_STORE=sqlite` 且设置 `XHS_AGENT_MEMORY_DB_PATH` 时运行，避免误写默认 JSON 运营记忆。
+- `scripts/check_api_run.py` 增加项目根目录 `sys.path` 初始化，修复直接运行 `python .\scripts\check_api_run.py --seed-recall-memory` 时无法导入 `memory` / `app` 包的问题。
+- `app/graph.py` 的本地兼容执行器和 LangGraph 编排顺序调整为：`load_user_input -> check_account_stage -> analyze_topic_and_pain_points -> retrieve_graphrag_memory -> decide_content_strategy`。
+- 这次顺序调整解决了真实 HTTP smoke 中“主题召回证据有命中，但 `recall_explanation_count=0`”的根因：旧顺序下记忆节点运行时还没有当前痛点，无法生成 `similar_experience` 召回解释。
+- `tests/test_check_api_run_auth.py` 覆盖脚本参数、种子写入、直接 CLI 入口导入路径。
+- `tests/test_langgraph_runtime.py` 新增 LangGraph 顺序回归，确保记忆节点能看到洞察节点产出的 `pain_points`。
+- `tests/test_graph_run_events.py` 同步更新本地执行器的节点事件顺序断言。
+
+验证：
+- RED：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_check_api_run_auth.py::test_parser_accepts_memory_context_requirements tests/test_check_api_run_auth.py::test_seed_recall_memory_writes_operation_record_for_mock_recall -q` 先出现 `2 failed`，原因是 `--seed-recall-memory` 和 `seed_recall_memory()` 尚不存在。
+- GREEN：同一组定点测试随后 `2 passed`。
+- RED：带 `--seed-recall-memory --require-memory-context --min-recall-explanations 1` 的本地 HTTP smoke 首次失败，错误为 `No module named 'memory'`，根因是脚本直接执行时未加入项目根目录。
+- RED：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_check_api_run_auth.py::test_cli_seed_recall_memory_can_import_project_modules -q` 复现 CLI 导入问题。
+- GREEN：CLI 入口测试和种子测试组合随后 `3 passed`。
+- RED：修复脚本入口后，本地 HTTP smoke 仍因 `memory_context_summary.recall_explanation_count is 0, below required minimum 1` 失败；排查确认根因是 LangGraph 节点顺序中 `retrieve_graphrag_memory` 早于 `analyze_topic_and_pain_points`。
+- RED：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_langgraph_runtime.py::test_run_graph_thread_retrieves_memory_after_insights -q` 先失败，`captured["pain_points"]` 为 `None`。
+- GREEN：调整节点顺序后，同一测试通过；`tests/test_langgraph_runtime.py tests/test_graph_run_events.py -q` -> `8 passed`。
+- 可控召回解释 HTTP smoke：使用临时 SQLite memory DB 启动 `scripts/run_api.py --host 127.0.0.1 --port 8017`，运行 `scripts/check_api_run.py --base-url http://127.0.0.1:8017 --engine langgraph --collect-limit 1 --timeout 180 --seed-recall-memory --require-memory-context --min-recall-explanations 1`，run `run_584e57d84df8` 最终 `status=success`，`summary.run_status=waiting_review`，`memory_context_summary.recall_explanation_count=1`，召回解释类型为 `similar_experience`。
+- 相关回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_check_api_run_auth.py tests/test_api_memory_graph.py tests/test_memory_context.py tests/test_generation_memory_context.py tests/test_api_langgraph_resume.py -q` -> `30 passed`。
+- M5/LangGraph 主链回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_node.py tests/test_strategy_memory_context.py tests/test_langgraph_runtime.py tests/test_graph_run_events.py -q` -> `20 passed`。
+- 编译检查：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes scripts tests` -> exit code 0。
+
+当前限制：
+- 本轮仍只做 mock HTTP 复验，没有触发真实采集、真实发布或真实平台写入。
+- `--seed-recall-memory` 是本地 smoke 辅助能力，只用于临时 SQLite operation memory；不要对默认生产 JSON memory 使用。
+- 当前打通的是规则版相似经验召回解释，不是 embedding/向量语义召回。
+
+下一步建议：
+- 继续保持 LangGraph-first，下一步可基于同一临时 SQLite smoke 方式补一条“历史合规风险召回解释”的可控复验。
+- 真实 Cookie 小流量前，先跑普通 smoke，再按需要跑 `--seed-recall-memory --min-recall-explanations 1`，确认 M5 解释链路没有退化。
+- embedding/向量召回、历史大迁移和复杂图谱可视化继续后置。
+
 ## 2026-06-14 LangGraph M5 smoke 校验增强与 mock 复验
 
 本轮继续未完成主线，并保持 LangGraph-first：不新增 API 旁路流程，不触发真实平台写入，而是把 M5 记忆上下文的脚本级校验、API summary 计数语义和本地 HTTP mock smoke 一起收口，方便后续做真实 Cookie 小流量复验前先确认 `graphrag_memory -> memory_context -> 生成 -> 合规 -> human_review` 主链可观察。

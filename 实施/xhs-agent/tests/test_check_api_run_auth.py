@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import io
+import os
+import subprocess
 import sys
+from pathlib import Path
 
+from memory import operation_store
 from scripts import check_api_run
 
 
@@ -25,11 +29,75 @@ def test_parser_accepts_api_token() -> None:
 
 def test_parser_accepts_memory_context_requirements() -> None:
     args = check_api_run.build_parser().parse_args(
-        ["--require-memory-context", "--min-recall-explanations", "2"]
+        ["--require-memory-context", "--min-recall-explanations", "2", "--seed-recall-memory"]
     )
 
     assert args.require_memory_context is True
     assert args.min_recall_explanations == 2
+    assert args.seed_recall_memory is True
+
+
+def test_seed_recall_memory_writes_operation_record_for_mock_recall(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("XHS_AGENT_MEMORY_STORE", "sqlite")
+    monkeypatch.setenv("XHS_AGENT_MEMORY_DB_PATH", str(tmp_path / "memory.sqlite3"))
+    operation_store.MEMORY_BACKEND = None
+    try:
+        record = check_api_run.seed_recall_memory(
+            topic="小红书新手选题方法",
+            target_user="内容创作新手",
+            content_format="image_text",
+        )
+
+        records = operation_store.find_relevant_records("小红书新手选题方法", limit=5)
+        graph = check_api_run.build_seed_recall_probe_graph("小红书新手选题方法", records)
+    finally:
+        operation_store.MEMORY_BACKEND = None
+
+    assert record["record_id"].startswith("op_")
+    assert record["publish_status"] == "success"
+    assert records[0]["record_id"] == record["record_id"]
+    assert graph["recall_explanations"][0]["type"] == "similar_experience"
+    assert "不知道「小红书新手选题方法」从哪里开始，需要清晰的入门步骤" in graph["recall_explanations"][0]["matched_terms"]
+
+
+def test_cli_seed_recall_memory_can_import_project_modules(tmp_path) -> None:
+    project_root = Path(__file__).resolve().parents[1]
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+    env.update(
+        {
+            "XHS_AGENT_MEMORY_STORE": "sqlite",
+            "XHS_AGENT_MEMORY_DB_PATH": str(tmp_path / "memory.sqlite3"),
+            "COLLECTOR_MODE": "mock",
+            "LLM_MODEL_NAME": "mock",
+            "CREATOR_MODE": "mock",
+        }
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(project_root / "scripts" / "check_api_run.py"),
+            "--base-url",
+            "http://127.0.0.1:9",
+            "--engine",
+            "langgraph",
+            "--seed-recall-memory",
+            "--timeout",
+            "0.1",
+        ],
+        cwd=project_root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+
+    output = result.stdout + result.stderr
+    assert "No module named" not in output
+    assert "seed_recall_record_id:" in output
+    assert "API request failed:" in output
 
 
 def test_validate_final_run_requires_langgraph_memory_context_summary() -> None:
