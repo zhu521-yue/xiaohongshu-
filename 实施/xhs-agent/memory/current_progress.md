@@ -1,5 +1,41 @@
 # 当前工程进度
 
+## 2026-06-14 LangGraph M5 本地 embedding 语义召回基线
+
+本轮继续主线任务，并保持 LangGraph-first：按用户选择的方向 1，直接把上一轮 `semantic_recall_records` 的轻量字符/词块相似召回，替换为项目内本地 embedding 向量评分。仍不引入外部 embedding 服务、不新增向量数据库、不改持久化结构，先把可测的向量召回落在现有 LangGraph 记忆链路里。
+
+已完成：
+- `app/memory_graph.py` 新增本地哈希 embedding：`local_hashing_embedding_v1`，固定 `64` 维，用 SHA1 hashing bucket 生成归一化向量并计算余弦分数。
+- `semantic_recall_records` 现在输出 `embedding_model`、`embedding_dimensions`、`semantic_score`、`matched_terms`、`matched_fields` 和本地 embedding 召回原因。
+- 增加少量项目内同义概念归一，覆盖 `audience_positioning`、`topic_selection`、`new_account_start`、`direction_clarity` 等高频选题/定位场景，使“受众画像”与“服务哪类人群”等表达可以通过 embedding 语义召回命中。
+- `nodes/memory_context.py` 的 `semantic_recall_records` 压缩输出保留 `embedding_model` 和 `embedding_dimensions`，让图文/视频生成上下文能看到召回来源。
+- `tests/test_memory_graph.py` 新增本地 embedding 元信息和同义受众定位召回测试。
+- `tests/test_memory_context.py` 新增生成上下文保留 embedding 元信息的契约测试。
+
+验证：
+- RED：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py -q` 先出现 `2 failed, 6 passed`，失败点分别是 `embedding_model` 缺失，以及“受众画像/服务哪类人群”的同义语义未被旧字符重叠召回。
+- RED：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_context.py::test_generation_memory_context_includes_rule_based_recall -q` 先因 `embedding_model` / `embedding_dimensions` 在 memory context 压缩中丢失失败。
+- GREEN：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_context.py -q` -> `14 passed`。
+- M5/LangGraph 相关回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_context.py tests/test_api_memory_graph.py tests/test_check_api_run_auth.py tests/test_generation_memory_context.py tests/test_strategy_memory_context.py tests/test_memory_node.py tests/test_langgraph_runtime.py tests/test_graph_run_events.py tests/test_api_langgraph_resume.py -q` -> `58 passed`。
+- 全量测试：`D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `332 passed`。
+- 编译检查：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes scripts tests` -> exit code 0。
+- 空白检查：`git diff --check` -> exit code 0，仅有 Windows 行尾提示。
+
+当前效果：
+- LangGraph 记忆节点仍返回同一个 `semantic_recall_records` 契约，但内部评分已经从字符重叠升级为本地 embedding 向量余弦分。
+- 生成上下文可以看到本地 embedding 模型名和维度，方便后续替换为真正 embedding 服务时复用同一契约和测试链路。
+- 仍保持零外部服务、零新数据库、零持久化迁移，适合当前主链稳定期。
+
+当前限制：
+- 这是项目内 hashing embedding 基线，不是大模型 embedding，也不是独立向量数据库检索。
+- 同义概念表仍是小范围业务词表，只覆盖当前 M5 选题/定位高频场景；更多跨主题语义需要后续扩展或接真正 embedding。
+- 本轮没有触发真实采集、真实发布或真实平台写入，也未新增 HTTP smoke。
+
+下一步建议：
+- 先提交并同步本轮本地 embedding 语义召回基线。
+- 后续如果继续 M5，可在不改 `semantic_recall_records` 对外契约的前提下，增加可选 embedding provider 或小型向量索引；在真实主链复验前仍不要引入重型外部服务。
+- 阶段一收口仍优先 Cookie 失效提示、长期运行监控和告警；公开发布、视频发布、定时发布和 M6 软广/达人继续后置。
+
 ## 2026-06-14 LangGraph M5 轻量语义召回基线
 
 本轮继续主线任务，并保持 LangGraph-first：不引入外部 embedding 服务、不新增向量库、不改持久化结构，而是在现有 `query_memory_graph()` 和 LangGraph 记忆上下文链路中补一层可测的本地轻量语义召回基线，作为后续真正 embedding/向量检索的接口落点。

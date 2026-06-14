@@ -7,12 +7,33 @@ It does not introduce a vector database or external graph store yet.
 
 from __future__ import annotations
 
+import hashlib
+import math
 from typing import Any
 
 from app.rules import load_data_quality_rules
 
 
 DATA_QUALITY_RULES = load_data_quality_rules()
+LOCAL_EMBEDDING_MODEL = "local_hashing_embedding_v1"
+LOCAL_EMBEDDING_DIMENSIONS = 64
+SEMANTIC_RECALL_MIN_SCORE = 0.08
+SEMANTIC_CONCEPT_PHRASES = {
+    "audience_positioning": (
+        "受众画像",
+        "目标用户",
+        "服务哪类人群",
+        "写给谁看",
+        "适合谁",
+        "哪类人群",
+        "人群",
+        "账号定位",
+        "内容定位",
+    ),
+    "topic_selection": ("选题", "选题方向", "内容方向", "题材"),
+    "new_account_start": ("新账号", "新手", "起号", "刚开始做账号"),
+    "direction_clarity": ("定位", "方向", "模糊", "不清晰", "不清楚", "没有方向", "很散", "太乱"),
+}
 
 
 def _clean_text(value: Any) -> str:
@@ -274,14 +295,46 @@ def _semantic_terms(*values: Any) -> set[str]:
     return terms
 
 
-def _semantic_score(query_terms: set[str], record_terms: set[str]) -> float:
-    if not query_terms or not record_terms:
+def _semantic_concepts(text: str) -> set[str]:
+    concepts: set[str] = set()
+    for concept, phrases in SEMANTIC_CONCEPT_PHRASES.items():
+        if any(phrase in text for phrase in phrases):
+            concepts.add(concept)
+    return concepts
+
+
+def _local_embedding_features(*values: Any) -> set[str]:
+    text = " ".join(_clean_text(item) for item in _iter_text_values(list(values)))
+    terms = _semantic_terms(text)
+    terms.update(_semantic_concepts(text))
+    return terms
+
+
+def _feature_bucket(feature: str) -> int:
+    digest = hashlib.sha1(feature.encode("utf-8")).digest()
+    return int.from_bytes(digest[:4], "big") % LOCAL_EMBEDDING_DIMENSIONS
+
+
+def _local_embedding_vector(features: set[str]) -> list[float]:
+    vector = [0.0 for _ in range(LOCAL_EMBEDDING_DIMENSIONS)]
+    for feature in features:
+        if not feature:
+            continue
+        vector[_feature_bucket(feature)] += 1.0
+    magnitude = math.sqrt(sum(value * value for value in vector))
+    if magnitude <= 0:
+        return vector
+    return [value / magnitude for value in vector]
+
+
+def _cosine_score(left: list[float], right: list[float]) -> float:
+    if not left or not right or len(left) != len(right):
         return 0.0
-    overlap = query_terms & record_terms
-    if not overlap:
-        return 0.0
-    denominator = (len(query_terms) * len(record_terms)) ** 0.5
-    return round(len(overlap) / denominator, 4)
+    return round(sum(a * b for a, b in zip(left, right)), 4)
+
+
+def _embedding_score(query_features: set[str], record_features: set[str]) -> float:
+    return _cosine_score(_local_embedding_vector(query_features), _local_embedding_vector(record_features))
 
 
 def _semantic_recall_records(
@@ -292,8 +345,8 @@ def _semantic_recall_records(
     comment_insights: list[dict[str, Any]],
     limit: int,
 ) -> list[dict[str, Any]]:
-    query_terms = _semantic_terms(topic, pain_points, comment_insights)
-    if not query_terms:
+    query_features = _local_embedding_features(topic, pain_points, comment_insights)
+    if not query_features:
         return []
 
     candidates: list[tuple[float, int, dict[str, Any]]] = []
@@ -303,16 +356,16 @@ def _semantic_recall_records(
         if _record_has_cross_domain_health_pollution(topic, record):
             continue
         chunks = _semantic_text_chunks(record)
-        record_terms = _semantic_terms(chunks)
-        score = _semantic_score(query_terms, record_terms)
-        if score < 0.08:
+        record_features = _local_embedding_features(chunks)
+        score = _embedding_score(query_features, record_features)
+        if score < SEMANTIC_RECALL_MIN_SCORE:
             continue
 
         matched_fields: list[str] = []
         matched_terms: list[str] = []
         for field_name, text in chunks.items():
-            field_terms = _semantic_terms(text)
-            overlap = query_terms & field_terms
+            field_features = _local_embedding_features(text)
+            overlap = query_features & field_features
             if not overlap:
                 continue
             matched_fields.append(field_name)
@@ -323,10 +376,12 @@ def _semantic_recall_records(
         compact = _compact_record(record)
         compact.update(
             {
+                "embedding_model": LOCAL_EMBEDDING_MODEL,
+                "embedding_dimensions": LOCAL_EMBEDDING_DIMENSIONS,
                 "semantic_score": score,
                 "matched_terms": matched_terms[:8],
                 "matched_fields": matched_fields,
-                "reason": "semantic_recall: 当前语义特征与历史记录相近。",
+                "reason": "semantic_recall: 本地 embedding 向量与历史记录相近。",
             }
         )
         candidates.append((score, _record_score(record), compact))

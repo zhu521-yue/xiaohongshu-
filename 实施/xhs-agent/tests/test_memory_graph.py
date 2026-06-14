@@ -167,6 +167,73 @@ def test_query_memory_graph_returns_lightweight_semantic_recall() -> None:
     assert not any(item["record_id"] == "op_unrelated" for item in result["semantic_recall_records"])
 
 
+def test_query_memory_graph_marks_semantic_recall_as_local_embedding() -> None:
+    records = [
+        _record(
+            "op_embedding",
+            topic="新手做内容定位",
+            content_type="step_tutorial",
+            score=36,
+            pain="刚开始做账号没有方向，不知道先服务哪类人群",
+        )
+    ]
+
+    result = memory_graph.query_memory_graph(
+        records,
+        topic="小红书选题",
+        limit=5,
+        pain_points=[
+            {
+                "pain": "新账号选题总是很散，定位不清楚，不知道先写给谁看",
+                "evidence": "评论说账号方向太乱",
+            }
+        ],
+    )
+
+    semantic = result["semantic_recall_records"][0]
+    assert semantic["embedding_model"] == "local_hashing_embedding_v1"
+    assert semantic["embedding_dimensions"] == 64
+    assert semantic["semantic_score"] > 0
+    assert semantic["reason"] == "semantic_recall: 本地 embedding 向量与历史记录相近。"
+
+
+def test_query_memory_graph_local_embedding_recalls_synonymous_audience_positioning() -> None:
+    records = [
+        _record(
+            "op_audience",
+            topic="新手起号方法",
+            content_type="step_tutorial",
+            score=31,
+            pain="不知道先服务哪类人群",
+        ),
+        _record(
+            "op_unrelated",
+            topic="宝宝湿疹护理",
+            content_type="qa_education",
+            score=99,
+            pain="担心护理方式不靠谱",
+        ),
+    ]
+
+    result = memory_graph.query_memory_graph(
+        records,
+        topic="小红书选题",
+        limit=5,
+        pain_points=[
+            {
+                "pain": "内容定位模糊，受众画像不清晰",
+                "evidence": "评论说看不出账号适合谁",
+            }
+        ],
+    )
+
+    semantic = result["semantic_recall_records"][0]
+    assert semantic["record_id"] == "op_audience"
+    assert semantic["semantic_score"] > 0
+    assert "audience_positioning" in semantic["matched_terms"]
+    assert not any(item["record_id"] == "op_unrelated" for item in result["semantic_recall_records"])
+
+
 def test_query_memory_graph_returns_historical_compliance_risks() -> None:
     record = _record(
         "op_risk",

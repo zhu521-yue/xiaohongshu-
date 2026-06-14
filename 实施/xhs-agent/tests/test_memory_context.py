@@ -164,8 +164,10 @@ def test_generation_memory_context_includes_rule_based_recall() -> None:
                         "title": "定位标题",
                         "content_type": "step_tutorial",
                         "performance_score": 36,
+                        "embedding_model": "local_hashing_embedding_v1",
+                        "embedding_dimensions": 64,
                         "semantic_score": 0.42,
-                        "reason": "semantic_recall: 当前语义特征与历史记录相近。",
+                        "reason": "semantic_recall: 本地 embedding 向量与历史记录相近。",
                     }
                 ],
                 "historical_compliance_risks": [
@@ -211,8 +213,10 @@ def test_generation_memory_context_includes_rule_based_recall() -> None:
         "title": "定位标题",
         "content_type": "step_tutorial",
         "performance_score": 36,
+        "embedding_model": "local_hashing_embedding_v1",
+        "embedding_dimensions": 64,
         "semantic_score": 0.42,
-        "reason": "semantic_recall: 当前语义特征与历史记录相近。",
+        "reason": "semantic_recall: 本地 embedding 向量与历史记录相近。",
     }
     assert context["historical_compliance_risks"][0]["risk_level"] == "medium"
     assert context["recall_explanations"] == [

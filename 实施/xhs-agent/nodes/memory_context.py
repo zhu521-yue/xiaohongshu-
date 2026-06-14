@@ -159,6 +159,8 @@ def _compact_semantic_recall(memory: dict[str, Any], limit: int) -> list[dict[st
                 "title": title,
                 "content_type": str(item_dict.get("content_type") or ""),
                 "performance_score": _safe_int(item_dict.get("performance_score")),
+                "embedding_model": str(item_dict.get("embedding_model") or ""),
+                "embedding_dimensions": _safe_int(item_dict.get("embedding_dimensions")),
                 "semantic_score": round(_safe_float(item_dict.get("semantic_score")), 4),
                 "reason": str(item_dict.get("reason") or ""),
             }
