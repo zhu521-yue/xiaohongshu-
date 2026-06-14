@@ -1,5 +1,38 @@
 # 当前工程进度
 
+## 2026-06-14 LangGraph M5 smoke 校验增强与 mock 复验
+
+本轮继续未完成主线，并保持 LangGraph-first：不新增 API 旁路流程，不触发真实平台写入，而是把 M5 记忆上下文的脚本级校验、API summary 计数语义和本地 HTTP mock smoke 一起收口，方便后续做真实 Cookie 小流量复验前先确认 `graphrag_memory -> memory_context -> 生成 -> 合规 -> human_review` 主链可观察。
+
+已完成：
+- `app/api.py` 的 `memory_context_summary` 计数改为基于原始 `graphrag_memory` 总量统计，避免 `build_generation_memory_context(limit=3)` 的压缩样本把推荐结构、召回证据、相似经验、历史合规风险和召回解释总数截断；展示样本仍限制为前两条召回解释。
+- `scripts/check_api_run.py` 的 `validate_final_run()` 从“只检查字段存在”升级为结构校验：`enabled` 必须为布尔值，`query` 必须为字符串，各 count 必须为非负整数，`recall_explanations` 必须为列表，样本数不能大于 `recall_explanation_count`。
+- `scripts/check_api_run.py` 新增 `--require-memory-context`，用于有历史记忆的 LangGraph smoke，要求 `memory_context_summary.enabled=true`。
+- `scripts/check_api_run.py` 新增 `--min-recall-explanations`，用于后续需要验证召回解释命中数的 M5 smoke；默认值为 0，不影响冷启动 mock run。
+- `tests/test_api_memory_graph.py` 覆盖“raw 总数计数 + 样本限制”的摘要语义。
+- `tests/test_check_api_run_auth.py` 覆盖脚本参数、畸形 summary 识别、强制 memory context 和最小召回解释数校验。
+
+验证：
+- RED：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_check_api_run_auth.py::test_validate_final_run_rejects_malformed_langgraph_memory_context_summary tests/test_api_memory_graph.py::test_memory_context_summary_counts_raw_memory_items_but_limits_samples -q` 先出现 `2 failed`，原因分别是脚本未校验畸形 summary、API summary count 被压缩上下文截断。
+- GREEN：同一组定点测试随后 `2 passed`。
+- RED：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_check_api_run_auth.py::test_parser_accepts_memory_context_requirements tests/test_check_api_run_auth.py::test_validate_final_run_can_require_enabled_memory_context tests/test_check_api_run_auth.py::test_validate_final_run_can_require_recall_explanation_minimum -q` 先出现 `3 failed`，原因是新增参数和校验入参尚不存在。
+- GREEN：同一组定点测试随后 `3 passed`。
+- 相关回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_check_api_run_auth.py tests/test_api_memory_graph.py tests/test_memory_context.py tests/test_generation_memory_context.py tests/test_api_langgraph_resume.py -q` -> `28 passed`。
+- M5/LangGraph 主链回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_node.py tests/test_strategy_memory_context.py tests/test_langgraph_runtime.py tests/test_graph_run_events.py -q` -> `19 passed`。
+- 编译检查：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes scripts tests` -> exit code 0。
+- mock HTTP smoke：启动 `scripts/run_api.py --host 127.0.0.1 --port 8015` 后运行 `scripts/check_api_run.py --base-url http://127.0.0.1:8015 --engine langgraph --collect-limit 1 --timeout 180`，run `run_0a8e2cf57324` 最终 `status=success`，`summary.run_status=waiting_review`，`memory_context_summary.enabled=true`。
+- 强制 memory context mock HTTP smoke：启动 `scripts/run_api.py --host 127.0.0.1 --port 8016` 后运行 `scripts/check_api_run.py --base-url http://127.0.0.1:8016 --engine langgraph --collect-limit 1 --timeout 180 --require-memory-context`，run `run_69de3ac17c13` 最终 `status=success`，`summary.run_status=waiting_review`，`memory_context_summary.enabled=true`。
+
+当前限制：
+- 本轮仍未触发真实采集、真实发布或真实平台写入，只做 mock HTTP 复验。
+- `--require-memory-context` 依赖当前 operation memory 中已有可召回记录；冷启动空记忆场景不要打开这个开关。
+- 当前 mock 主题能命中召回证据，但 `recall_explanation_count=0`，说明规则版跨主题相似经验/历史合规风险解释没有在该主题下命中；后续如果要验证解释链路，可先准备带匹配痛点或合规风险的历史记录。
+
+下一步建议：
+- 继续保持 LangGraph-first，下一步可以做“可控历史记忆种子 + `--min-recall-explanations` 的 mock smoke”，专门复验召回解释链路。
+- 再之后进入真实 Cookie 小流量前，先运行普通 `check_api_run.py --engine langgraph` 和必要时的 `--require-memory-context`，确认 M5 摘要可观察。
+- embedding/向量召回、历史大迁移和复杂图谱可视化仍后置，不要抢在主链稳定复验前做重型改造。
+
 ## 2026-06-14 LangGraph M5 记忆上下文可观测性增强
 
 本轮继续未完成主线，并增加一组与真实小流量复验直接相关的任务：不触发真实平台写入，而是先让 LangGraph-first run 在进入审核前能稳定暴露 M5 记忆上下文摘要，便于后续验证 `graphrag_memory -> memory_context -> 生成 -> 合规 -> human_review` 是否真的连通。

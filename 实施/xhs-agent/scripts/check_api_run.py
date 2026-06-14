@@ -11,6 +11,16 @@ from typing import Any
 import requests
 
 
+MEMORY_CONTEXT_COUNT_KEYS = (
+    "graph_record_count",
+    "recommended_content_type_count",
+    "recall_evidence_count",
+    "similar_experience_count",
+    "historical_compliance_risk_count",
+    "recall_explanation_count",
+)
+
+
 def _print_line(*values: Any, sep: str = " ", end: str = "\n") -> None:
     text = sep.join(str(value) for value in values) + end
     try:
@@ -58,14 +68,77 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--collect-limit", type=int, default=5, help="Collector note limit.")
     parser.add_argument("--interval", type=float, default=2.0, help="Polling interval seconds.")
     parser.add_argument("--timeout", type=float, default=180.0, help="Max wait seconds.")
+    parser.add_argument(
+        "--require-memory-context",
+        action="store_true",
+        help="Fail LangGraph smoke unless memory_context_summary.enabled is true.",
+    )
+    parser.add_argument(
+        "--min-recall-explanations",
+        type=int,
+        default=0,
+        help="Fail LangGraph smoke unless recall_explanation_count is at least this value.",
+    )
     return parser
 
 
-def validate_final_run(final: dict[str, Any], *, engine: str) -> list[str]:
+def _is_non_negative_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def _validate_memory_context_summary(value: Any) -> list[str]:
+    issues: list[str] = []
+    if not isinstance(value, dict):
+        return ["memory_context_summary must be an object"]
+
+    if not isinstance(value.get("enabled"), bool):
+        issues.append("memory_context_summary.enabled must be boolean")
+    if not isinstance(value.get("query"), str):
+        issues.append("memory_context_summary.query must be a string")
+
+    for key in MEMORY_CONTEXT_COUNT_KEYS:
+        if not _is_non_negative_int(value.get(key)):
+            issues.append(f"memory_context_summary.{key} must be a non-negative integer")
+
+    explanations = value.get("recall_explanations")
+    if not isinstance(explanations, list):
+        issues.append("memory_context_summary.recall_explanations must be a list")
+    elif _is_non_negative_int(value.get("recall_explanation_count")):
+        if len(explanations) > value["recall_explanation_count"]:
+            issues.append("memory_context_summary.recall_explanations has more samples than recall_explanation_count")
+
+    return issues
+
+
+def validate_final_run(
+    final: dict[str, Any],
+    *,
+    engine: str,
+    require_memory_context: bool = False,
+    min_recall_explanations: int = 0,
+) -> list[str]:
     issues: list[str] = []
     summary = final.get("summary") if isinstance(final.get("summary"), dict) else {}
-    if engine == "langgraph" and "memory_context_summary" not in summary:
-        issues.append("missing memory_context_summary in LangGraph run summary")
+    if engine == "langgraph":
+        if "memory_context_summary" not in summary:
+            issues.append("missing memory_context_summary in LangGraph run summary")
+        else:
+            memory_summary = summary.get("memory_context_summary")
+            issues.extend(_validate_memory_context_summary(memory_summary))
+            if isinstance(memory_summary, dict):
+                if require_memory_context and memory_summary.get("enabled") is not True:
+                    issues.append("memory_context_summary.enabled is false; expected recalled memory context")
+                min_explanations = max(0, int(min_recall_explanations or 0))
+                explanation_count = memory_summary.get("recall_explanation_count")
+                if (
+                    min_explanations
+                    and _is_non_negative_int(explanation_count)
+                    and explanation_count < min_explanations
+                ):
+                    issues.append(
+                        "memory_context_summary.recall_explanation_count "
+                        f"is {explanation_count}, below required minimum {min_explanations}"
+                    )
     return issues
 
 
@@ -133,7 +206,12 @@ def main() -> int:
         return 2
 
     _print_json(final)
-    validation_issues = validate_final_run(final, engine=args.engine)
+    validation_issues = validate_final_run(
+        final,
+        engine=args.engine,
+        require_memory_context=args.require_memory_context,
+        min_recall_explanations=args.min_recall_explanations,
+    )
     if validation_issues:
         _print_json({"validation_issues": validation_issues})
         return 1

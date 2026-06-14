@@ -160,6 +160,10 @@ def _int(value: Any, default: int = 0) -> int:
         return default
 
 
+def _list_count(value: Any) -> int:
+    return len(value) if isinstance(value, list) else 0
+
+
 def _float(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -405,11 +409,11 @@ def _memory_context_summary(state: dict[str, Any]) -> dict[str, Any]:
         "enabled": bool(context.get("enabled")),
         "query": context.get("query") or "",
         "graph_record_count": _int(graph.get("record_count"), default=0),
-        "recommended_content_type_count": len(context.get("recommended_content_types") or []),
-        "recall_evidence_count": len(context.get("recall_evidence") or []),
-        "similar_experience_count": len(context.get("similar_experience_records") or []),
-        "historical_compliance_risk_count": len(context.get("historical_compliance_risks") or []),
-        "recall_explanation_count": len(explanations),
+        "recommended_content_type_count": _list_count(memory.get("recommended_content_types")),
+        "recall_evidence_count": _list_count(memory.get("recall_evidence")),
+        "similar_experience_count": _list_count(memory.get("similar_experience_records")),
+        "historical_compliance_risk_count": _list_count(memory.get("historical_compliance_risks")),
+        "recall_explanation_count": _list_count(memory.get("recall_explanations")),
         "recall_explanations": explanations[:2],
     }
 

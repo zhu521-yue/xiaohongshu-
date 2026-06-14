@@ -23,13 +23,32 @@ def test_parser_accepts_api_token() -> None:
     assert args.api_token == "secret-token"
 
 
+def test_parser_accepts_memory_context_requirements() -> None:
+    args = check_api_run.build_parser().parse_args(
+        ["--require-memory-context", "--min-recall-explanations", "2"]
+    )
+
+    assert args.require_memory_context is True
+    assert args.min_recall_explanations == 2
+
+
 def test_validate_final_run_requires_langgraph_memory_context_summary() -> None:
     assert check_api_run.validate_final_run(
         {
             "status": "success",
             "summary": {
                 "run_status": "waiting_review",
-                "memory_context_summary": {"enabled": False},
+                "memory_context_summary": {
+                    "enabled": False,
+                    "query": "",
+                    "graph_record_count": 0,
+                    "recommended_content_type_count": 0,
+                    "recall_evidence_count": 0,
+                    "similar_experience_count": 0,
+                    "historical_compliance_risk_count": 0,
+                    "recall_explanation_count": 0,
+                    "recall_explanations": [],
+                },
             },
         },
         engine="langgraph",
@@ -39,6 +58,82 @@ def test_validate_final_run_requires_langgraph_memory_context_summary() -> None:
         {"status": "success", "summary": {"run_status": "waiting_review"}},
         engine="langgraph",
     ) == ["missing memory_context_summary in LangGraph run summary"]
+
+
+def test_validate_final_run_rejects_malformed_langgraph_memory_context_summary() -> None:
+    issues = check_api_run.validate_final_run(
+        {
+            "status": "success",
+            "summary": {
+                "run_status": "waiting_review",
+                "memory_context_summary": {
+                    "enabled": "false",
+                    "graph_record_count": "0",
+                    "recall_explanation_count": 1,
+                    "recall_explanations": [{}, {}],
+                },
+            },
+        },
+        engine="langgraph",
+    )
+
+    assert "memory_context_summary.enabled must be boolean" in issues
+    assert "memory_context_summary.query must be a string" in issues
+    assert "memory_context_summary.graph_record_count must be a non-negative integer" in issues
+    assert "memory_context_summary.recommended_content_type_count must be a non-negative integer" in issues
+    assert "memory_context_summary.recall_explanations has more samples than recall_explanation_count" in issues
+
+
+def test_validate_final_run_can_require_enabled_memory_context() -> None:
+    final = {
+        "status": "success",
+        "summary": {
+            "run_status": "waiting_review",
+            "memory_context_summary": {
+                "enabled": False,
+                "query": "",
+                "graph_record_count": 0,
+                "recommended_content_type_count": 0,
+                "recall_evidence_count": 0,
+                "similar_experience_count": 0,
+                "historical_compliance_risk_count": 0,
+                "recall_explanation_count": 0,
+                "recall_explanations": [],
+            },
+        },
+    }
+
+    assert check_api_run.validate_final_run(
+        final,
+        engine="langgraph",
+        require_memory_context=True,
+    ) == ["memory_context_summary.enabled is false; expected recalled memory context"]
+
+
+def test_validate_final_run_can_require_recall_explanation_minimum() -> None:
+    final = {
+        "status": "success",
+        "summary": {
+            "run_status": "waiting_review",
+            "memory_context_summary": {
+                "enabled": True,
+                "query": "小红书选题",
+                "graph_record_count": 3,
+                "recommended_content_type_count": 1,
+                "recall_evidence_count": 1,
+                "similar_experience_count": 1,
+                "historical_compliance_risk_count": 0,
+                "recall_explanation_count": 1,
+                "recall_explanations": [{"type": "similar_experience"}],
+            },
+        },
+    }
+
+    assert check_api_run.validate_final_run(
+        final,
+        engine="langgraph",
+        min_recall_explanations=2,
+    ) == ["memory_context_summary.recall_explanation_count is 1, below required minimum 2"]
 
 
 def test_print_json_handles_gbk_stdout_with_emoji(monkeypatch) -> None:

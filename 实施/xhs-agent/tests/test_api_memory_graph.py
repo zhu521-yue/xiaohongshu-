@@ -121,6 +121,55 @@ def test_state_summary_exposes_langgraph_memory_context_summary() -> None:
     }
 
 
+def test_memory_context_summary_counts_raw_memory_items_but_limits_samples() -> None:
+    summary = api._state_summary(
+        {
+            "graphrag_memory": {
+                "query": "小红书选题",
+                "graph": {"record_count": 8},
+                "recommended_content_types": [
+                    {"content_type": "step_tutorial"},
+                    {"content_type": "avoid_mistakes"},
+                    {"content_type": "checklist"},
+                    {"content_type": "case_review"},
+                ],
+                "recall_evidence": [
+                    {"record_id": "op_1"},
+                    {"record_id": "op_2"},
+                    {"record_id": "op_3"},
+                    {"record_id": "op_4"},
+                ],
+                "similar_experience_records": [
+                    {"record_id": "op_sim_1", "reason": "痛点相似"},
+                    {"record_id": "op_sim_2", "reason": "评论洞察相似"},
+                    {"record_id": "op_sim_3", "reason": "复盘摘要相似"},
+                    {"record_id": "op_sim_4", "reason": "下一步建议相似"},
+                ],
+                "historical_compliance_risks": [
+                    {"record_id": "op_risk_1", "risk_level": "medium"},
+                    {"record_id": "op_risk_2", "risk_level": "high"},
+                    {"record_id": "op_risk_3", "risk_level": "medium"},
+                    {"record_id": "op_risk_4", "risk_level": "high"},
+                ],
+                "recall_explanations": [
+                    {"type": "similar_experience", "record_id": "op_sim_1", "reason": "第一条"},
+                    {"type": "similar_experience", "record_id": "op_sim_2", "reason": "第二条"},
+                    {"type": "historical_compliance_risk", "record_id": "op_risk_1", "reason": "第三条"},
+                    {"type": "historical_compliance_risk", "record_id": "op_risk_2", "reason": "第四条"},
+                ],
+            }
+        }
+    )
+
+    memory_summary = summary["memory_context_summary"]
+    assert memory_summary["recommended_content_type_count"] == 4
+    assert memory_summary["recall_evidence_count"] == 4
+    assert memory_summary["similar_experience_count"] == 4
+    assert memory_summary["historical_compliance_risk_count"] == 4
+    assert memory_summary["recall_explanation_count"] == 4
+    assert len(memory_summary["recall_explanations"]) == 2
+
+
 def test_compact_memory_record_exposes_rag_eligibility() -> None:
     compact = api._compact_memory_record(
         {
