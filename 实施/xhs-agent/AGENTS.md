@@ -29,7 +29,7 @@
 - M2 只读采集：部分完成。已有 collector 薄封装、Spider_XHS 采集、评论去噪、去标识化和候选池评分初版；评论质量评分细化、Cookie 失效产品化提示仍需继续完善。
 - M3 复盘闭环 + 运营记忆：基本完成，并已扩展 SQLite operation memory、业务表、表现录入反向同步、复盘、运营记忆前端展示和历史表现补偿脚本。
 - M4 创作者平台发布：部分完成。已验证 LangGraph-first 私密图文发布、真实图片素材绑定、作品列表同步、发布状态等待、表现回填、平台指标手动/批量同步、脚本循环同步、趋势摘要和工作台同步入口；公开发布、定时发布、视频发布、后台常驻定时调度仍未完成。
-- M5 GraphRAG 运营记忆增强：已启动第一片。当前完成基于 operation memory 的图谱视图与 `GET /memory/graph` 查询初版，LangGraph 记忆节点已返回 `graphrag_memory`；向量检索、embedding、跨主题语义召回、合规风险历史召回和前端召回依据展示仍未完成。
+- M5 GraphRAG 运营记忆增强：已完成前三片最小闭环。当前已有基于 operation memory 的图谱视图与 `GET /memory/graph` 查询初版，LangGraph 记忆节点已返回 `graphrag_memory`，策略/生成节点已消费图谱记忆；`rag_eligibility` 已开始控制长期运营记忆写入，工作台已支持轻量查看召回依据。向量检索、embedding、跨主题语义召回、合规风险历史召回、历史大迁移和复杂图谱可视化仍未完成。
 - M6 阶段二软广 + 达人：未完成。
 - M17a 已完成最小生产护栏：API token、日志落盘、敏感字段脱敏、运行配置检查和 token 烟测。
 - M17b 已完成启动模板：本地 API、SQLite API、SQLite worker 的 PowerShell 模板，并明确优先使用 `D:\Anaconda\envs\ContentShare\python.exe`。
@@ -44,7 +44,7 @@
 - M25 已完成平台安全护栏：Cookie 预检、发布日限、随机延时、失败停手和本地 guardrail 状态记录。
 - M26 已完成发布状态等待：按需只读轮询 creator 作品列表，避免私密发布后短暂 `not_found` 误判。
 - 最新运行时主线已收敛为 LangGraph-first：API/CLI 默认 `engine=langgraph`，`engine=local` 仅保留为显式兼容路径。
-- 最近验证状态：M5 GraphRAG 图谱视图初版新增测试 `4 passed`，相关回归 `17 passed`，compileall 通过；上一轮 SQLite stack 健康/停止/日志脚本定点测试 `9 passed`，健康脚本 `-ConfigOnly` / `-SkipApi` 通过，停止脚本 dry-run 通过，日志脚本通过；真实 creator 只读批量同步通过，`total=2`、`succeeded=2`、`failed=0`。
+- 最近验证状态：M5 第三片完成时全量测试 `307 passed`，`compileall app nodes memory platforms tests` 通过；手动合并后关键回归复验 `38 passed`。旧 SQLite stack 健康/停止/日志脚本定点测试 `9 passed`，健康脚本 `-ConfigOnly` / `-SkipApi` 通过，停止脚本 dry-run 通过，日志脚本通过；真实 creator 只读批量同步通过，`total=2`、`succeeded=2`、`failed=0`。
 
 ## 从0手册对照后的未完成主线
 
@@ -58,10 +58,14 @@
    - 公开视频/公开图文/定时发布尚未完成。
 3. M5 GraphRAG 运营记忆增强：
    - 基于 operation memory 的主题 -> 痛点 -> 内容形式 -> 表现图谱视图已完成初版。
+   - 策略/生成节点消费 `graphrag_memory` 已完成初版。
+   - 按 `rag_eligibility` 控制可入库长期运营记忆已完成初版。
+   - 前端查看召回依据已完成轻量展示初版。
    - 向量检索仍未完成。
    - 跨主题相似经验召回仍未完成。
    - 合规风险历史召回仍未完成。
-   - 前端查看召回依据仍未完成。
+   - 历史 operation memory 大迁移/质量补标仍未完成。
+   - 更完整图谱可视化仍未完成。
 4. M6 阶段二软广 + 达人：
    - `platforms/qianfan.py` 未做。
    - `platforms/pugongying.py` 未做。
@@ -81,15 +85,16 @@
 
 1. 不要继续优先做前端细节小功能。
 2. 把本次 LangGraph-first 真实私密发布复验作为 M4 私密图文最新稳定基线。
-3. 下一步继续 M5：让策略/生成节点消费 `graphrag_memory`，或先做工作台召回依据展示；工作台批量选择可后置。
+3. 下一步继续 M5：在不急于引入重型外部服务的前提下，优先评估 embedding/向量检索的最小可测方案，或先做跨主题相似经验召回与合规风险历史召回的规则版闭环；工作台批量选择和复杂图谱可视化可后置。
 4. 公开图文、视频、定时发布继续后置，执行前必须重新确认平台写入风险。
 5. M6 阶段二软广和达人能力最后做。
 
 ## 当前工作树提示
 
-- 最近主线代码已提交到 `71b1c5c chore: clean up langgraph runtime api boundary`，本地分支领先远端。
-- 当前只应有项目记忆/协作约定类文档变更；新线程开始后，先跑 `git status --short` 和必要测试，确认工作树状态。
-- 旧 `.worktrees/langgraph-first-runtime-redesign` 路径在当前工作区不可见，后续如再次出现需要单独确认或清理。
+- 最近主线代码已提交到 `533778f docs: record rag eligibility recall evidence progress`，本地 `master` 已包含 M5 第三片功能分支内容。
+- 当前只应有项目记忆/协作约定类文档变更；新线程开始后，先跑 `git status --short --branch` 和必要测试，确认工作树状态。
+- 远端 `origin/master` 是否已经同步需要重新 `git fetch origin` 后确认；当前环境曾因 `.git/FETCH_HEAD` 权限无法自动 fetch，必要时由用户手动核验。
+- 旧 worktree `.worktrees/m5-rag-eligibility-recall-evidence` 已在用户授权后用 `git worktree remove` 清理；本地分支 `codex/m5-rag-eligibility-recall-evidence` 仍保留，后续如确认不再需要可再单独删除。
 
 ## 其他协作注意事项
 

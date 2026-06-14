@@ -1,5 +1,28 @@
 # 当前工程进度
 
+## 2026-06-14 手动合并后的遗留问题收口
+
+本轮目标是接续用户手动执行后的状态：先核对本地合并结果，收口不会触碰远端和旧分支的遗留问题，再为下一条主线任务做规划复核。
+
+已完成：
+- 本地 `master` 当前 HEAD 为 `533778f docs: record rag eligibility recall evidence progress`，与 `codex/m5-rag-eligibility-recall` 和 `origin/codex/m5-rag-eligibility-recall` 指向一致。
+- `git status --short --branch` 显示本地 `master` 仍为 `## master...origin/master [ahead 36]`，说明本地远端引用尚未确认同步。
+- 尝试 `git fetch origin` 时被 `.git/FETCH_HEAD` 权限阻断；提权请求未获系统审批，因此本轮未能自动刷新 `origin/master`。
+- 已同步 `AGENTS.md` 中过时的 M5 状态、当前优先级、最近提交与旧 worktree 提示，避免后续线程继续按“M5 第三片未完成”的旧信息推进。
+- 用户授权后已用 `git worktree remove` 清理旧 worktree `.worktrees/m5-rag-eligibility-recall-evidence`；本地分支 `codex/m5-rag-eligibility-recall-evidence` 仍保留。
+- 未推送 `master`，未改动业务代码。
+
+当前遗留：
+- 远端 `origin/master` 是否已被用户手动推送同步，仍需用户在本机手动 `git fetch origin` 后确认。
+- GitHub PR 是否已创建仍未确认；`gh` CLI 不可用时可继续使用网页 compare 链接创建。
+- 本地分支 `codex/m5-rag-eligibility-recall-evidence` 尚未删除，后续如确认不再需要可单独清理。
+
+下一步主线建议：
+- 继续 M5，但不急于直接引入向量库或图数据库。
+- 优先候选一：基于现有 operation memory 做跨主题相似经验召回的轻量规则版，把相似痛点、内容类型和高表现记录纳入 `graphrag_memory`。
+- 优先候选二：补合规风险历史召回，把过往高风险/中风险命中原因作为生成和审核前的提醒。
+- embedding/向量检索可作为下一阶段设计任务，在规则版召回边界稳定后再评估最小可测方案。
+
 ## 2026-06-14 M5 RAG 入库门槛与召回依据展示
 
 本轮继续推进 M5 第三片：在不引入向量库、图数据库或新外部服务的前提下，用 `rag_eligibility` 控制长期运营记忆写入，并在工作台展示当前主题的召回依据。
