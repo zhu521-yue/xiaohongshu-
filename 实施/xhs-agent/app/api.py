@@ -405,6 +405,19 @@ def _memory_context_summary(state: dict[str, Any]) -> dict[str, Any]:
     graph = memory.get("graph") if isinstance(memory.get("graph"), dict) else {}
     context = build_generation_memory_context(state, limit=3)
     explanations = context.get("recall_explanations") or []
+    semantic_records = memory.get("semantic_recall_records")
+    semantic_model = ""
+    semantic_dimensions = 0
+    if isinstance(semantic_records, list):
+        for item in semantic_records:
+            if not isinstance(item, dict):
+                continue
+            if not semantic_model:
+                semantic_model = str(item.get("embedding_model") or "")
+            if not semantic_dimensions:
+                semantic_dimensions = _int(item.get("embedding_dimensions"), default=0)
+            if semantic_model and semantic_dimensions:
+                break
     return {
         "enabled": bool(context.get("enabled")),
         "query": context.get("query") or "",
@@ -412,6 +425,8 @@ def _memory_context_summary(state: dict[str, Any]) -> dict[str, Any]:
         "recommended_content_type_count": _list_count(memory.get("recommended_content_types")),
         "recall_evidence_count": _list_count(memory.get("recall_evidence")),
         "semantic_recall_count": _list_count(memory.get("semantic_recall_records")),
+        "semantic_embedding_model": semantic_model,
+        "semantic_embedding_dimensions": semantic_dimensions,
         "similar_experience_count": _list_count(memory.get("similar_experience_records")),
         "historical_compliance_risk_count": _list_count(memory.get("historical_compliance_risks")),
         "recall_explanation_count": _list_count(memory.get("recall_explanations")),

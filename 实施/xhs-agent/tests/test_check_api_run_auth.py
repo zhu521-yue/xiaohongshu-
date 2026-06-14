@@ -151,6 +151,8 @@ def test_validate_final_run_requires_langgraph_memory_context_summary() -> None:
                     "recommended_content_type_count": 0,
                     "recall_evidence_count": 0,
                     "semantic_recall_count": 0,
+                    "semantic_embedding_model": "",
+                    "semantic_embedding_dimensions": 0,
                     "similar_experience_count": 0,
                     "historical_compliance_risk_count": 0,
                     "recall_explanation_count": 0,
@@ -176,6 +178,9 @@ def test_validate_final_run_rejects_malformed_langgraph_memory_context_summary()
                 "memory_context_summary": {
                     "enabled": "false",
                     "graph_record_count": "0",
+                    "semantic_recall_count": "1",
+                    "semantic_embedding_model": 123,
+                    "semantic_embedding_dimensions": "64",
                     "recall_explanation_count": 1,
                     "recall_explanations": [{}, {}],
                 },
@@ -189,6 +194,8 @@ def test_validate_final_run_rejects_malformed_langgraph_memory_context_summary()
     assert "memory_context_summary.graph_record_count must be a non-negative integer" in issues
     assert "memory_context_summary.recommended_content_type_count must be a non-negative integer" in issues
     assert "memory_context_summary.semantic_recall_count must be a non-negative integer" in issues
+    assert "memory_context_summary.semantic_embedding_model must be a string" in issues
+    assert "memory_context_summary.semantic_embedding_dimensions must be a non-negative integer" in issues
     assert "memory_context_summary.recall_explanations has more samples than recall_explanation_count" in issues
 
 
@@ -204,6 +211,8 @@ def test_validate_final_run_can_require_enabled_memory_context() -> None:
                 "recommended_content_type_count": 0,
                 "recall_evidence_count": 0,
                 "semantic_recall_count": 0,
+                "semantic_embedding_model": "",
+                "semantic_embedding_dimensions": 0,
                 "similar_experience_count": 0,
                 "historical_compliance_risk_count": 0,
                 "recall_explanation_count": 0,
@@ -231,6 +240,8 @@ def test_validate_final_run_can_require_recall_explanation_minimum() -> None:
                 "recommended_content_type_count": 1,
                 "recall_evidence_count": 1,
                 "semantic_recall_count": 0,
+                "semantic_embedding_model": "",
+                "semantic_embedding_dimensions": 0,
                 "similar_experience_count": 1,
                 "historical_compliance_risk_count": 0,
                 "recall_explanation_count": 1,
@@ -258,6 +269,8 @@ def test_validate_final_run_can_require_recall_explanation_type() -> None:
                 "recommended_content_type_count": 1,
                 "recall_evidence_count": 1,
                 "semantic_recall_count": 0,
+                "semantic_embedding_model": "",
+                "semantic_embedding_dimensions": 0,
                 "similar_experience_count": 1,
                 "historical_compliance_risk_count": 0,
                 "recall_explanation_count": 1,
@@ -288,6 +301,8 @@ def test_validate_final_run_can_require_recall_explanation_type_from_full_state(
                 "recommended_content_type_count": 1,
                 "recall_evidence_count": 1,
                 "semantic_recall_count": 1,
+                "semantic_embedding_model": "local_hashing_embedding_v1",
+                "semantic_embedding_dimensions": 64,
                 "similar_experience_count": 1,
                 "historical_compliance_risk_count": 1,
                 "recall_explanation_count": 3,

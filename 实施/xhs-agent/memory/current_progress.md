@@ -1,5 +1,40 @@
 # 当前工程进度
 
+## 2026-06-14 LangGraph M5 本地 embedding 召回可观测性增强
+
+本轮继续 M5 主线，并保持 LangGraph-first：不引入外部 embedding 服务、不新增向量库，而是在已经完成的 `local_hashing_embedding_v1` 本地 embedding 召回基础上，补齐 API summary 和 smoke 脚本的可观测性与质量门槛，方便后续替换 provider 或接入向量索引时复用同一套验收链路。
+
+已完成：
+- `app/api.py` 的 `memory_context_summary` 新增 `semantic_embedding_model` 和 `semantic_embedding_dimensions`。
+- 空记忆时 summary 稳定返回 `semantic_embedding_model=""`、`semantic_embedding_dimensions=0`。
+- 有 `semantic_recall_records` 时，summary 会从原始 `graphrag_memory.semantic_recall_records` 中读取首个可用 embedding 模型名和维度，不依赖压缩样本数量。
+- `scripts/check_api_run.py` 增强 memory context summary 结构校验：`semantic_embedding_model` 必须是字符串，`semantic_embedding_dimensions` 必须是非负整数；当 `semantic_recall_count > 0` 时，模型名必须非空，维度必须大于 0。
+- `tests/test_api_memory_graph.py` 覆盖 API summary 对 embedding 元信息的投影和 raw 计数语义。
+- `tests/test_check_api_run_auth.py` 覆盖畸形 embedding summary 的脚本级拒绝。
+- `tests/test_api_langgraph_resume.py` 更新冷启动空记忆的稳定 summary 契约。
+
+验证：
+- RED：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_api_memory_graph.py tests/test_check_api_run_auth.py::test_validate_final_run_requires_langgraph_memory_context_summary tests/test_check_api_run_auth.py::test_validate_final_run_rejects_malformed_langgraph_memory_context_summary tests/test_check_api_run_auth.py::test_validate_final_run_can_require_enabled_memory_context tests/test_check_api_run_auth.py::test_validate_final_run_can_require_recall_explanation_minimum tests/test_check_api_run_auth.py::test_validate_final_run_can_require_recall_explanation_type tests/test_check_api_run_auth.py::test_validate_final_run_can_require_recall_explanation_type_from_full_state -q` 先出现 `3 failed, 9 passed`，失败点为 API summary 未透出 embedding 元信息、脚本尚未校验 embedding 元信息。
+- GREEN：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_api_memory_graph.py tests/test_check_api_run_auth.py -q` -> `20 passed`。
+- M5/LangGraph 相关回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_context.py tests/test_api_memory_graph.py tests/test_check_api_run_auth.py tests/test_generation_memory_context.py tests/test_strategy_memory_context.py tests/test_memory_node.py tests/test_langgraph_runtime.py tests/test_graph_run_events.py tests/test_api_langgraph_resume.py -q` -> `58 passed`。
+- 全量测试：`D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `332 passed`。
+- 编译检查：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes scripts tests` -> exit code 0。
+- 空白检查：`git diff --check` -> exit code 0，仅有 Windows 行尾提示。
+
+当前效果：
+- LangGraph run 的最终 summary 现在能直接展示语义召回使用的 embedding 模型名和维度。
+- 本地 HTTP smoke 若命中语义召回但 embedding 元信息缺失，会在脚本层失败，避免后续 provider 替换时静默降级。
+- 冷启动空记忆仍保持稳定结构，便于工作台和脚本处理。
+
+当前限制：
+- 本轮只补可观测性和校验，不改变召回算法本身。
+- 仍未引入外部 embedding 服务、独立向量数据库、历史大迁移或复杂图谱可视化。
+- 本轮没有新增真实采集、真实发布或真实平台写入。
+
+下一步建议：
+- 先提交并同步本轮可观测性增强。
+- 后续继续 M5 时，可在现有 summary 与 smoke 质量门槛基础上做可选 provider 或小型向量索引；阶段一收口仍优先 Cookie 失效提示、长期运行监控和告警。
+
 ## 2026-06-14 LangGraph M5 本地 embedding 语义召回基线
 
 本轮继续主线任务，并保持 LangGraph-first：按用户选择的方向 1，直接把上一轮 `semantic_recall_records` 的轻量字符/词块相似召回，替换为项目内本地 embedding 向量评分。仍不引入外部 embedding 服务、不新增向量数据库、不改持久化结构，先把可测的向量召回落在现有 LangGraph 记忆链路里。

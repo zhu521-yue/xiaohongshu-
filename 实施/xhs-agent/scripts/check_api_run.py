@@ -217,6 +217,21 @@ def _validate_memory_context_summary(value: Any) -> list[str]:
         if not _is_non_negative_int(value.get(key)):
             issues.append(f"memory_context_summary.{key} must be a non-negative integer")
 
+    semantic_model = value.get("semantic_embedding_model")
+    semantic_dimensions = value.get("semantic_embedding_dimensions")
+    semantic_count = value.get("semantic_recall_count")
+    if not isinstance(semantic_model, str):
+        issues.append("memory_context_summary.semantic_embedding_model must be a string")
+    if not _is_non_negative_int(semantic_dimensions):
+        issues.append("memory_context_summary.semantic_embedding_dimensions must be a non-negative integer")
+    elif _is_non_negative_int(semantic_count) and semantic_count > 0:
+        if not isinstance(semantic_model, str) or not semantic_model.strip():
+            issues.append("memory_context_summary.semantic_embedding_model is required when semantic recall exists")
+        if semantic_dimensions <= 0:
+            issues.append(
+                "memory_context_summary.semantic_embedding_dimensions must be positive when semantic recall exists"
+            )
+
     explanations = value.get("recall_explanations")
     if not isinstance(explanations, list):
         issues.append("memory_context_summary.recall_explanations must be a list")
