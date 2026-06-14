@@ -423,6 +423,8 @@ def _state_summary(state: dict[str, Any]) -> dict[str, Any]:
         "creator_images_count": _int(state.get("creator_images_count"), default=0),
         "operation_memory_written": state.get("operation_memory_written"),
         "operation_record_id": state.get("operation_record_id"),
+        "operation_memory_skip_reason": state.get("operation_memory_skip_reason"),
+        "operation_memory_skip_detail": state.get("operation_memory_skip_detail") or {},
         "performance_data": state.get("performance_data") or {},
         "performance_score": _int(state.get("performance_score"), default=0),
         "review_summary": state.get("review_summary"),
@@ -1019,6 +1021,7 @@ def _compact_memory_record(record: dict[str, Any]) -> dict[str, Any]:
         "performance_score": record.get("performance_score"),
         "review_summary": record.get("review_summary"),
         "next_action": record.get("next_action"),
+        "rag_eligibility": record.get("rag_eligibility") or {},
         "review_generation": record.get("review_generation") or {},
         "updated_at": record.get("updated_at"),
     }
