@@ -126,6 +126,47 @@ def test_query_memory_graph_returns_cross_topic_similar_experience() -> None:
     assert not any(item["record_id"] == "op_unrelated" for item in result["similar_experience_records"])
 
 
+def test_query_memory_graph_returns_lightweight_semantic_recall() -> None:
+    records = [
+        _record(
+            "op_semantic",
+            topic="新手做内容定位",
+            content_type="step_tutorial",
+            score=36,
+            pain="刚开始做账号没有方向，不知道先服务哪类人群",
+        ),
+        _record(
+            "op_unrelated",
+            topic="宝宝湿疹护理",
+            content_type="qa_education",
+            score=99,
+            pain="担心护理方式不靠谱",
+        ),
+    ]
+
+    result = memory_graph.query_memory_graph(
+        records,
+        topic="小红书选题",
+        limit=5,
+        pain_points=[
+            {
+                "pain": "新账号选题总是很散，定位不清楚，不知道先写给谁看",
+                "evidence": "评论说账号方向太乱",
+            }
+        ],
+    )
+
+    semantic = result["semantic_recall_records"][0]
+    assert semantic["record_id"] == "op_semantic"
+    assert semantic["semantic_score"] > 0
+    assert "semantic_recall" in semantic["reason"]
+    assert any(
+        item["type"] == "semantic_recall" and item["record_id"] == "op_semantic"
+        for item in result["recall_explanations"]
+    )
+    assert not any(item["record_id"] == "op_unrelated" for item in result["semantic_recall_records"])
+
+
 def test_query_memory_graph_returns_historical_compliance_risks() -> None:
     record = _record(
         "op_risk",

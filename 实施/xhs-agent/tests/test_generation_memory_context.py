@@ -128,10 +128,11 @@ def test_generation_prompt_uses_disabled_memory_context_when_empty(monkeypatch) 
     assert captured["input_payload"]["memory_context"] == {
         "enabled": False,
         "query": "",
-        "recommended_content_types": [],
-        "related_pain_points": [],
-        "recall_evidence": [],
-        "similar_experience_records": [],
-        "historical_compliance_risks": [],
+            "recommended_content_types": [],
+            "related_pain_points": [],
+            "recall_evidence": [],
+            "semantic_recall_records": [],
+            "similar_experience_records": [],
+            "historical_compliance_risks": [],
         "recall_explanations": [],
     }

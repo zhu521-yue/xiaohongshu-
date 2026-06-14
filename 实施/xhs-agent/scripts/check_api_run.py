@@ -22,6 +22,7 @@ MEMORY_CONTEXT_COUNT_KEYS = (
     "graph_record_count",
     "recommended_content_type_count",
     "recall_evidence_count",
+    "semantic_recall_count",
     "similar_experience_count",
     "historical_compliance_risk_count",
     "recall_explanation_count",
@@ -91,7 +92,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="append",
         default=[],
         dest="required_recall_explanation_types",
-        choices=("similar_experience", "historical_compliance_risk"),
+        choices=("similar_experience", "semantic_recall", "historical_compliance_risk"),
         help="Fail LangGraph smoke unless sampled recall_explanations include this type. Can be repeated.",
     )
     parser.add_argument(
@@ -226,6 +227,25 @@ def _validate_memory_context_summary(value: Any) -> list[str]:
     return issues
 
 
+def _recall_explanation_types(final: dict[str, Any], memory_summary: dict[str, Any]) -> set[str]:
+    explanations: list[Any] = []
+    summary_explanations = memory_summary.get("recall_explanations")
+    if isinstance(summary_explanations, list):
+        explanations.extend(summary_explanations)
+
+    state = final.get("state") if isinstance(final.get("state"), dict) else {}
+    memory = state.get("graphrag_memory") if isinstance(state.get("graphrag_memory"), dict) else {}
+    full_explanations = memory.get("recall_explanations")
+    if isinstance(full_explanations, list):
+        explanations.extend(full_explanations)
+
+    return {
+        str(item.get("type") or "").strip()
+        for item in explanations
+        if isinstance(item, dict) and str(item.get("type") or "").strip()
+    }
+
+
 def validate_final_run(
     final: dict[str, Any],
     *,
@@ -261,13 +281,8 @@ def validate_final_run(
                     for item in (required_recall_explanation_types or [])
                     if str(item).strip()
                 ]
-                explanations = memory_summary.get("recall_explanations")
-                if required_types and isinstance(explanations, list):
-                    seen_types = {
-                        str(item.get("type") or "").strip()
-                        for item in explanations
-                        if isinstance(item, dict)
-                    }
+                if required_types:
+                    seen_types = _recall_explanation_types(final, memory_summary)
                     for required_type in required_types:
                         if required_type not in seen_types:
                             issues.append(

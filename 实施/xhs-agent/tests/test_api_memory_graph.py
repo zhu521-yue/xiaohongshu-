@@ -62,6 +62,7 @@ def test_state_summary_exposes_langgraph_memory_context_summary() -> None:
                     {"content_type": "step_tutorial", "count": 2, "max_score": 90}
                 ],
                 "recall_evidence": [{"record_id": "op_1"}, {"record_id": "op_2"}],
+                "semantic_recall_records": [{"record_id": "op_semantic", "reason": "semantic_recall"}],
                 "similar_experience_records": [{"record_id": "op_sim", "reason": "痛点相似"}],
                 "historical_compliance_risks": [
                     {"record_id": "op_risk", "risk_level": "medium", "reason": "风险相似"}
@@ -99,6 +100,7 @@ def test_state_summary_exposes_langgraph_memory_context_summary() -> None:
         "graph_record_count": 3,
         "recommended_content_type_count": 1,
         "recall_evidence_count": 2,
+        "semantic_recall_count": 1,
         "similar_experience_count": 1,
         "historical_compliance_risk_count": 1,
         "recall_explanation_count": 3,
@@ -139,6 +141,12 @@ def test_memory_context_summary_counts_raw_memory_items_but_limits_samples() -> 
                     {"record_id": "op_3"},
                     {"record_id": "op_4"},
                 ],
+                "semantic_recall_records": [
+                    {"record_id": "op_sem_1", "reason": "semantic_recall"},
+                    {"record_id": "op_sem_2", "reason": "semantic_recall"},
+                    {"record_id": "op_sem_3", "reason": "semantic_recall"},
+                    {"record_id": "op_sem_4", "reason": "semantic_recall"},
+                ],
                 "similar_experience_records": [
                     {"record_id": "op_sim_1", "reason": "痛点相似"},
                     {"record_id": "op_sim_2", "reason": "评论洞察相似"},
@@ -164,6 +172,7 @@ def test_memory_context_summary_counts_raw_memory_items_but_limits_samples() -> 
     memory_summary = summary["memory_context_summary"]
     assert memory_summary["recommended_content_type_count"] == 4
     assert memory_summary["recall_evidence_count"] == 4
+    assert memory_summary["semantic_recall_count"] == 4
     assert memory_summary["similar_experience_count"] == 4
     assert memory_summary["historical_compliance_risk_count"] == 4
     assert memory_summary["recall_explanation_count"] == 4

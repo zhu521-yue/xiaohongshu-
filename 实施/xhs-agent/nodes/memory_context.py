@@ -143,6 +143,29 @@ def _compact_similar_experiences(memory: dict[str, Any], limit: int) -> list[dic
     return result[: max(0, int(limit))]
 
 
+def _compact_semantic_recall(memory: dict[str, Any], limit: int) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in _as_list(memory.get("semantic_recall_records")):
+        item_dict = _as_dict(item)
+        record_id = str(item_dict.get("record_id") or "").strip()
+        title = str(item_dict.get("title") or "").strip()
+        topic = str(item_dict.get("topic") or "").strip()
+        if not record_id and not title and not topic:
+            continue
+        result.append(
+            {
+                "record_id": record_id,
+                "topic": topic,
+                "title": title,
+                "content_type": str(item_dict.get("content_type") or ""),
+                "performance_score": _safe_int(item_dict.get("performance_score")),
+                "semantic_score": round(_safe_float(item_dict.get("semantic_score")), 4),
+                "reason": str(item_dict.get("reason") or ""),
+            }
+        )
+    return result[: max(0, int(limit))]
+
+
 def _compact_compliance_risks(memory: dict[str, Any], limit: int) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for item in _as_list(memory.get("historical_compliance_risks")):
@@ -192,9 +215,18 @@ def build_generation_memory_context(state: XHSState, limit: int = 3) -> dict[str
     pain_points = _compact_pain_points(memory, limit)
     evidence = _compact_evidence(memory, limit)
     similar_experiences = _compact_similar_experiences(memory, limit)
+    semantic_recall = _compact_semantic_recall(memory, limit)
     compliance_risks = _compact_compliance_risks(memory, limit)
     explanations = _compact_recall_explanations(memory, limit)
-    enabled = bool(recommendations or pain_points or evidence or similar_experiences or compliance_risks or explanations)
+    enabled = bool(
+        recommendations
+        or pain_points
+        or evidence
+        or similar_experiences
+        or semantic_recall
+        or compliance_risks
+        or explanations
+    )
 
     return {
         "enabled": enabled,
@@ -202,6 +234,7 @@ def build_generation_memory_context(state: XHSState, limit: int = 3) -> dict[str
         "recommended_content_types": recommendations,
         "related_pain_points": pain_points,
         "recall_evidence": evidence,
+        "semantic_recall_records": semantic_recall,
         "similar_experience_records": similar_experiences,
         "historical_compliance_risks": compliance_risks,
         "recall_explanations": explanations,

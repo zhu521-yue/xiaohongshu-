@@ -1,5 +1,40 @@
 # 当前工程进度
 
+## 2026-06-14 LangGraph M5 轻量语义召回基线
+
+本轮继续主线任务，并保持 LangGraph-first：不引入外部 embedding 服务、不新增向量库、不改持久化结构，而是在现有 `query_memory_graph()` 和 LangGraph 记忆上下文链路中补一层可测的本地轻量语义召回基线，作为后续真正 embedding/向量检索的接口落点。
+
+已完成：
+- `app/memory_graph.py` 新增本地文本特征相似逻辑：从主题、痛点、评论洞察、复盘摘要等字段抽取轻量词块，计算当前查询与历史记录的语义近似分。
+- `query_memory_graph()` 新增 `semantic_recall_records`，并在 `recall_explanations` 中返回 `type="semantic_recall"` 的解释项。
+- `nodes/memory_context.py` 新增 `semantic_recall_records` 压缩输出；冷启动空记忆时也稳定返回空数组，保持生成节点契约稳定。
+- `app/api.py` 的 `memory_context_summary` 新增 `semantic_recall_count`，便于 HTTP smoke 和工作台摘要观察。
+- `scripts/check_api_run.py` 的 memory context 结构校验纳入 `semantic_recall_count`，并允许 `--require-recall-explanation-type semantic_recall`。
+- `scripts/check_api_run.py` 在校验指定召回解释类型时，会合并 summary 样本与完整 `state.graphrag_memory.recall_explanations`，避免 summary 只展示前两条导致漏判。
+- 已同步相关测试：`tests/test_memory_graph.py`、`tests/test_memory_context.py`、`tests/test_api_memory_graph.py`、`tests/test_check_api_run_auth.py`、`tests/test_api_langgraph_resume.py`、`tests/test_generation_memory_context.py`。
+
+验证：
+- RED：语义召回字段缺失时，定点测试先出现预期失败；脚本层 `semantic_recall` 参数、计数和完整 state 校验缺失时也先失败。
+- GREEN：语义召回定点测试随后 `6 passed`；脚本 parser/summary 定点随后 `4 passed`；`tests/test_check_api_run_auth.py` 随后 `14 passed`。
+- M5/LangGraph 相关回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_context.py tests/test_api_memory_graph.py tests/test_check_api_run_auth.py tests/test_generation_memory_context.py tests/test_strategy_memory_context.py tests/test_memory_node.py tests/test_langgraph_runtime.py tests/test_graph_run_events.py tests/test_api_langgraph_resume.py -q` -> `56 passed`。
+- HTTP smoke：使用临时 SQLite memory DB 启动本地 API 后运行 `scripts/check_api_run.py --base-url http://127.0.0.1:8019 --engine langgraph --topic 小红书新手选题方法一定有效 --collect-limit 1 --timeout 180 --seed-recall-memory --require-memory-context --min-recall-explanations 3 --require-recall-explanation-type similar_experience --require-recall-explanation-type semantic_recall --require-recall-explanation-type historical_compliance_risk`，run `run_087837c15550` 最终 `status=success`，`summary.run_status=waiting_review`，`memory_context_summary.semantic_recall_count=1`，完整 state 中召回解释类型同时包含 `similar_experience`、`semantic_recall` 和 `historical_compliance_risk`。
+- 收尾验证：临时目录 `data\tmp_m5_semantic_recall_smoke` 已清理；`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes scripts tests` -> exit code 0；同一组 M5/LangGraph 相关回归复跑 -> `56 passed`。
+
+当前效果：
+- LangGraph 生成上下文现在能同时消费规则相似经验、历史合规风险和轻量语义召回结果。
+- smoke 脚本可以明确要求 `semantic_recall` 召回解释出现，便于后续替换为真正 embedding 实现时复用同一条验收链路。
+- 本轮没有新增外部服务和重型依赖，避免在主链稳定前引入新的运行条件。
+
+当前限制：
+- 这是本地文本特征相似的轻量基线，不是真正 embedding 或向量数据库检索。
+- 本轮仍只做 mock HTTP 复验，没有触发真实采集、真实发布或真实平台写入。
+- 历史 operation memory 大迁移、质量补标和复杂图谱可视化仍未完成。
+
+下一步建议：
+- 先提交并同步本轮 M5 语义召回基线。
+- 后续继续保持 LangGraph-first：可在现有 `semantic_recall_records` 契约上评估真正 embedding/向量检索的最小可测替换方案，但不要在真实主链复验前引入重型服务。
+- 如果进入阶段一收口，则优先补 Cookie 失效提示、长期运行监控和告警，而不是先做公开发布、视频发布或定时发布。
+
 ## 2026-06-14 LangGraph M5 历史合规风险召回解释可控复验
 
 本轮继续主线任务，并保持 LangGraph-first：不在 API 层拼接召回结果，不新增旁路生成流程，而是在 LangGraph 图内增加“合规检查后刷新记忆”的节点，让当前 run 产生 `compliance_issues` 后，可以再用同一套 `query_memory_graph()` 补齐历史合规风险召回解释，并在进入人工审核前暴露到 `memory_context_summary`。

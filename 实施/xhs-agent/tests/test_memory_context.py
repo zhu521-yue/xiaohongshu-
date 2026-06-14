@@ -117,6 +117,7 @@ def test_generation_memory_context_compacts_and_limits_fields() -> None:
                 "performance_score": 90,
             }
         ],
+        "semantic_recall_records": [],
         "similar_experience_records": [],
         "historical_compliance_risks": [],
         "recall_explanations": [],
@@ -132,6 +133,7 @@ def test_empty_generation_memory_context_is_disabled() -> None:
         "recommended_content_types": [],
         "related_pain_points": [],
         "recall_evidence": [],
+        "semantic_recall_records": [],
         "similar_experience_records": [],
         "historical_compliance_risks": [],
         "recall_explanations": [],
@@ -155,6 +157,17 @@ def test_generation_memory_context_includes_rule_based_recall() -> None:
                         "matched_terms": ["担心踩坑浪费时间"],
                     }
                 ],
+                "semantic_recall_records": [
+                    {
+                        "record_id": "op_semantic",
+                        "topic": "新手做内容定位",
+                        "title": "定位标题",
+                        "content_type": "step_tutorial",
+                        "performance_score": 36,
+                        "semantic_score": 0.42,
+                        "reason": "semantic_recall: 当前语义特征与历史记录相近。",
+                    }
+                ],
                 "historical_compliance_risks": [
                     {
                         "record_id": "op_risk",
@@ -172,6 +185,13 @@ def test_generation_memory_context_includes_rule_based_recall() -> None:
                         "reason": "当前痛点与历史记录相似。",
                     },
                     {
+                        "type": "semantic_recall",
+                        "record_id": "op_semantic",
+                        "matched_terms": ["定位", "新手"],
+                        "matched_fields": ["pain_points"],
+                        "reason": "semantic_recall: 当前语义特征与历史记录相近。",
+                    },
+                    {
                         "type": "historical_compliance_risk",
                         "record_id": "op_risk",
                         "matched_terms": ["一定"],
@@ -185,6 +205,15 @@ def test_generation_memory_context_includes_rule_based_recall() -> None:
 
     assert context["enabled"] is True
     assert context["similar_experience_records"][0]["record_id"] == "op_tool"
+    assert context["semantic_recall_records"][0] == {
+        "record_id": "op_semantic",
+        "topic": "新手做内容定位",
+        "title": "定位标题",
+        "content_type": "step_tutorial",
+        "performance_score": 36,
+        "semantic_score": 0.42,
+        "reason": "semantic_recall: 当前语义特征与历史记录相近。",
+    }
     assert context["historical_compliance_risks"][0]["risk_level"] == "medium"
     assert context["recall_explanations"] == [
         {
@@ -193,6 +222,13 @@ def test_generation_memory_context_includes_rule_based_recall() -> None:
             "matched_terms": ["担心踩坑浪费时间"],
             "matched_fields": ["pain_points"],
             "reason": "当前痛点与历史记录相似。",
+        },
+        {
+            "type": "semantic_recall",
+            "record_id": "op_semantic",
+            "matched_terms": ["定位", "新手"],
+            "matched_fields": ["pain_points"],
+            "reason": "semantic_recall: 当前语义特征与历史记录相近。",
         },
         {
             "type": "historical_compliance_risk",

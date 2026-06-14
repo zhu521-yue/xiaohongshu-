@@ -411,6 +411,7 @@ def _memory_context_summary(state: dict[str, Any]) -> dict[str, Any]:
         "graph_record_count": _int(graph.get("record_count"), default=0),
         "recommended_content_type_count": _list_count(memory.get("recommended_content_types")),
         "recall_evidence_count": _list_count(memory.get("recall_evidence")),
+        "semantic_recall_count": _list_count(memory.get("semantic_recall_records")),
         "similar_experience_count": _list_count(memory.get("similar_experience_records")),
         "historical_compliance_risk_count": _list_count(memory.get("historical_compliance_risks")),
         "recall_explanation_count": _list_count(memory.get("recall_explanations")),

@@ -54,6 +54,7 @@ def test_create_run_langgraph_waits_for_review(isolated_langgraph_api) -> None:
         "graph_record_count": 0,
         "recommended_content_type_count": 0,
         "recall_evidence_count": 0,
+        "semantic_recall_count": 0,
         "similar_experience_count": 0,
         "historical_compliance_risk_count": 0,
         "recall_explanation_count": 0,

@@ -248,6 +248,93 @@ def _context_terms(*values: Any) -> list[str]:
     return terms
 
 
+def _semantic_text_chunks(record: dict[str, Any]) -> dict[str, str]:
+    return {
+        "topic": " ".join(_iter_text_values(record.get("topic"))),
+        "title": " ".join(_iter_text_values(record.get("title")) + _iter_text_values(record.get("titles"))),
+        "pain_points": " ".join(_iter_text_values(record.get("pain_points"))),
+        "comment_insights": " ".join(_iter_text_values(record.get("comment_insights"))),
+        "review_summary": " ".join(_iter_text_values(record.get("review_summary"))),
+        "next_action": " ".join(_iter_text_values(record.get("next_action"))),
+        "content_type": " ".join(_iter_text_values(record.get("content_type"))),
+    }
+
+
+def _semantic_terms(*values: Any) -> set[str]:
+    text = " ".join(_clean_text(item) for item in _iter_text_values(list(values)))
+    compact = "".join(char for char in text if char.strip())
+    terms: set[str] = set()
+    for size in (2, 3):
+        if len(compact) >= size:
+            terms.update(compact[index : index + size] for index in range(len(compact) - size + 1))
+    for chunk in text.replace("，", " ").replace("。", " ").replace("、", " ").split():
+        clean = _clean_text(chunk)
+        if len(clean) >= 2:
+            terms.add(clean)
+    return terms
+
+
+def _semantic_score(query_terms: set[str], record_terms: set[str]) -> float:
+    if not query_terms or not record_terms:
+        return 0.0
+    overlap = query_terms & record_terms
+    if not overlap:
+        return 0.0
+    denominator = (len(query_terms) * len(record_terms)) ** 0.5
+    return round(len(overlap) / denominator, 4)
+
+
+def _semantic_recall_records(
+    records: list[dict[str, Any]],
+    *,
+    topic: str,
+    pain_points: list[dict[str, Any]],
+    comment_insights: list[dict[str, Any]],
+    limit: int,
+) -> list[dict[str, Any]]:
+    query_terms = _semantic_terms(topic, pain_points, comment_insights)
+    if not query_terms:
+        return []
+
+    candidates: list[tuple[float, int, dict[str, Any]]] = []
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        if _record_has_cross_domain_health_pollution(topic, record):
+            continue
+        chunks = _semantic_text_chunks(record)
+        record_terms = _semantic_terms(chunks)
+        score = _semantic_score(query_terms, record_terms)
+        if score < 0.08:
+            continue
+
+        matched_fields: list[str] = []
+        matched_terms: list[str] = []
+        for field_name, text in chunks.items():
+            field_terms = _semantic_terms(text)
+            overlap = query_terms & field_terms
+            if not overlap:
+                continue
+            matched_fields.append(field_name)
+            for term in sorted(overlap, key=lambda item: (-len(item), item)):
+                if term not in matched_terms:
+                    matched_terms.append(term)
+
+        compact = _compact_record(record)
+        compact.update(
+            {
+                "semantic_score": score,
+                "matched_terms": matched_terms[:8],
+                "matched_fields": matched_fields,
+                "reason": "semantic_recall: 当前语义特征与历史记录相近。",
+            }
+        )
+        candidates.append((score, _record_score(record), compact))
+
+    candidates.sort(key=lambda item: (item[0], item[1], item[2]["record_id"]), reverse=True)
+    return [item[2] for item in candidates[: max(0, int(limit))]]
+
+
 def _compliance_terms(issues: list[str] | None) -> list[str]:
     terms: list[str] = []
     seen: set[str] = set()
@@ -427,6 +514,7 @@ def _similar_pain_points(
 
 def _recall_explanations(
     similar_records: list[dict[str, Any]],
+    semantic_records: list[dict[str, Any]],
     compliance_risks: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     explanations: list[dict[str, Any]] = []
@@ -434,6 +522,16 @@ def _recall_explanations(
         explanations.append(
             {
                 "type": "similar_experience",
+                "record_id": record.get("record_id") or "",
+                "reason": record.get("reason") or "",
+                "matched_terms": record.get("matched_terms") or [],
+                "matched_fields": record.get("matched_fields") or [],
+            }
+        )
+    for record in semantic_records:
+        explanations.append(
+            {
+                "type": "semantic_recall",
                 "record_id": record.get("record_id") or "",
                 "reason": record.get("reason") or "",
                 "matched_terms": record.get("matched_terms") or [],
@@ -529,6 +627,13 @@ def query_memory_graph(
     compact_records = [_compact_record(record) for record in selected]
     experience_terms = _context_terms(pain_points or [], comment_insights or [])
     similar_records = _similar_experience_records(records, topic=topic, terms=experience_terms, limit=limit)
+    semantic_records = _semantic_recall_records(
+        records,
+        topic=topic,
+        pain_points=pain_points or [],
+        comment_insights=comment_insights or [],
+        limit=limit,
+    )
     compliance_risks = _historical_compliance_risks(
         records,
         terms=_compliance_terms(compliance_issues),
@@ -541,9 +646,10 @@ def query_memory_graph(
         "related_pain_points": _related_pain_points(selected),
         "recommended_content_types": graph["recommended_content_types"],
         "recall_evidence": compact_records[:5],
+        "semantic_recall_records": semantic_records,
         "similar_experience_records": similar_records,
         "similar_pain_points": _similar_pain_points(records, similar_records=similar_records),
         "historical_compliance_risks": compliance_risks,
-        "recall_explanations": _recall_explanations(similar_records, compliance_risks),
+        "recall_explanations": _recall_explanations(similar_records, semantic_records, compliance_risks),
         "graph": graph,
     }

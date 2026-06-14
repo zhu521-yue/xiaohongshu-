@@ -35,13 +35,15 @@ def test_parser_accepts_memory_context_requirements() -> None:
             "2",
             "--require-recall-explanation-type",
             "historical_compliance_risk",
+            "--require-recall-explanation-type",
+            "semantic_recall",
             "--seed-recall-memory",
         ]
     )
 
     assert args.require_memory_context is True
     assert args.min_recall_explanations == 2
-    assert args.required_recall_explanation_types == ["historical_compliance_risk"]
+    assert args.required_recall_explanation_types == ["historical_compliance_risk", "semantic_recall"]
     assert args.seed_recall_memory is True
 
 
@@ -148,6 +150,7 @@ def test_validate_final_run_requires_langgraph_memory_context_summary() -> None:
                     "graph_record_count": 0,
                     "recommended_content_type_count": 0,
                     "recall_evidence_count": 0,
+                    "semantic_recall_count": 0,
                     "similar_experience_count": 0,
                     "historical_compliance_risk_count": 0,
                     "recall_explanation_count": 0,
@@ -185,6 +188,7 @@ def test_validate_final_run_rejects_malformed_langgraph_memory_context_summary()
     assert "memory_context_summary.query must be a string" in issues
     assert "memory_context_summary.graph_record_count must be a non-negative integer" in issues
     assert "memory_context_summary.recommended_content_type_count must be a non-negative integer" in issues
+    assert "memory_context_summary.semantic_recall_count must be a non-negative integer" in issues
     assert "memory_context_summary.recall_explanations has more samples than recall_explanation_count" in issues
 
 
@@ -199,6 +203,7 @@ def test_validate_final_run_can_require_enabled_memory_context() -> None:
                 "graph_record_count": 0,
                 "recommended_content_type_count": 0,
                 "recall_evidence_count": 0,
+                "semantic_recall_count": 0,
                 "similar_experience_count": 0,
                 "historical_compliance_risk_count": 0,
                 "recall_explanation_count": 0,
@@ -225,6 +230,7 @@ def test_validate_final_run_can_require_recall_explanation_minimum() -> None:
                 "graph_record_count": 3,
                 "recommended_content_type_count": 1,
                 "recall_evidence_count": 1,
+                "semantic_recall_count": 0,
                 "similar_experience_count": 1,
                 "historical_compliance_risk_count": 0,
                 "recall_explanation_count": 1,
@@ -251,6 +257,7 @@ def test_validate_final_run_can_require_recall_explanation_type() -> None:
                 "graph_record_count": 3,
                 "recommended_content_type_count": 1,
                 "recall_evidence_count": 1,
+                "semantic_recall_count": 0,
                 "similar_experience_count": 1,
                 "historical_compliance_risk_count": 0,
                 "recall_explanation_count": 1,
@@ -267,6 +274,45 @@ def test_validate_final_run_can_require_recall_explanation_type() -> None:
         "memory_context_summary.recall_explanations missing required type: "
         "historical_compliance_risk"
     ]
+
+
+def test_validate_final_run_can_require_recall_explanation_type_from_full_state() -> None:
+    final = {
+        "status": "success",
+        "summary": {
+            "run_status": "waiting_review",
+            "memory_context_summary": {
+                "enabled": True,
+                "query": "小红书选题",
+                "graph_record_count": 3,
+                "recommended_content_type_count": 1,
+                "recall_evidence_count": 1,
+                "semantic_recall_count": 1,
+                "similar_experience_count": 1,
+                "historical_compliance_risk_count": 1,
+                "recall_explanation_count": 3,
+                "recall_explanations": [
+                    {"type": "similar_experience"},
+                    {"type": "historical_compliance_risk"},
+                ],
+            },
+        },
+        "state": {
+            "graphrag_memory": {
+                "recall_explanations": [
+                    {"type": "similar_experience"},
+                    {"type": "historical_compliance_risk"},
+                    {"type": "semantic_recall"},
+                ]
+            }
+        },
+    }
+
+    assert check_api_run.validate_final_run(
+        final,
+        engine="langgraph",
+        required_recall_explanation_types=["semantic_recall"],
+    ) == []
 
 
 def test_print_json_handles_gbk_stdout_with_emoji(monkeypatch) -> None:
