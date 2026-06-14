@@ -1672,3 +1672,31 @@ Worker service
 - `graphrag_memory` 现在已进入策略和 LLM prompt，但仍不是完整 RAG 入库。
 - 下一步 M5 建议转向按 `rag_eligibility` 控制长期记忆入库，并在工作台展示召回依据。
 - embedding、向量检索、图数据库、历史大迁移和正式公网生产部署继续后置。
+
+## 39. 2026-06-14 M5 RAG 入库门槛与召回依据展示完成
+
+本次完成 M5 第三片最小闭环：`rag_eligibility` 开始控制长期运营记忆写入，工作台可以查看当前主题的召回依据。
+
+已完成：
+
+- `nodes/memory_node.write_operation_memory()` 在发布成功后检查 `rag_eligibility`，明确 blocked 的 run 会跳过长期运营记忆写入。
+- run summary 暴露 `operation_memory_skip_reason` 和 `operation_memory_skip_detail`，便于工作台和调试脚本解释为什么没有写入记忆。
+- `memory/operation_store.record_from_state()` 保存 `rag_eligibility`，为后续真正 RAG 入库和历史补偿留下质量审计字段。
+- `app.api._compact_memory_record()` 暴露 `rag_eligibility`。
+- 工作台新增召回依据区，复用 `/memory/graph?topic=...&limit=5` 展示推荐内容类型、相关痛点和召回记录。
+- mock collector 补足开发基线评论样本，creator review 相关测试夹具显式使用 mock collector/mock LLM，避免本地 `.env` 配置污染测试结果。
+
+验证补充：
+
+- 后端定点回归通过：`13 passed`。
+- 工作台静态回归通过：`4 passed`。
+- `node --check app/static/app.js` 通过。
+- M5 相关回归通过：`16 passed`。
+- 全量测试通过：`307 passed`。
+- Python 编译检查通过：`compileall app nodes memory platforms tests`。
+
+路线图影响：
+
+- “按 `rag_eligibility` 控制可入库记忆”从待办调整为初版完成。
+- “前端查看召回依据”从未完成调整为轻量展示初版完成。
+- 向量检索、embedding、跨主题语义召回、合规风险历史召回、历史大迁移和复杂图谱可视化继续后置。

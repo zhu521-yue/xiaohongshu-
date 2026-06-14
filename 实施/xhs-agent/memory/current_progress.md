@@ -1,5 +1,46 @@
 # 当前工程进度
 
+## 2026-06-14 M5 RAG 入库门槛与召回依据展示
+
+本轮继续推进 M5 第三片：在不引入向量库、图数据库或新外部服务的前提下，用 `rag_eligibility` 控制长期运营记忆写入，并在工作台展示当前主题的召回依据。
+
+已完成：
+- `write_operation_memory()` 会在 `publish_status=success` 后检查 `rag_eligibility`；明确 blocked 的 run 不再写入长期运营记忆。
+- run summary 会返回 `operation_memory_skip_reason` 和 `operation_memory_skip_detail`。
+- 运营记忆记录保存 `rag_eligibility`，用于后续入库审计和补偿。
+- memory records API 暴露 `rag_eligibility`。
+- 工作台复用 `/memory/graph?topic=...` 展示推荐内容类型、相关痛点和召回记录。
+- mock collector 补足开发基线评论样本，creator review 测试夹具显式使用 mock collector/mock LLM，避免继承本地 `.env` 导致测试数据被 RAG 门槛误阻断。
+
+当前限制：
+- 本轮不改变历史召回过滤逻辑，不过滤旧记录。
+- 本轮不是完整 RAG/GraphRAG：仍没有 embedding、向量检索、图数据库或跨主题语义召回。
+- 工作台只做结构化文本展示，不做复杂图谱可视化。
+
+验证：
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_node.py tests/test_operation_store_sqlite.py tests/test_api_memory_graph.py -q` -> `13 passed`。
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_workbench_memory_visibility_static.py -q` -> `4 passed`。
+- `node --check app/static/app.js` -> exit code 0。
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_context.py tests/test_strategy_memory_context.py tests/test_generation_memory_context.py tests/test_memory_node.py -q` -> `16 passed`。
+- `D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `307 passed`。
+- `D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes memory platforms tests` -> exit code 0。
+
+## 2026-06-14 项目阅读与下一步规划复核
+
+本次目标是重新阅读当前项目状态，梳理主线任务，并确认下一步规划。已对照根目录 `从0实现指导手册.md` 的 M0-M6 主线、`AGENTS.md`、`memory/current_progress.md`、`memory/project_status_and_roadmap.md`、现有 M5 规格/计划文档和关键代码边界。
+
+当前判断：
+- 主代码目录仍是 `实施/xhs-agent`，仓库工作树当前干净，本地分支领先远端。
+- M0-M4 已形成阶段一 MVP 和 creator 私密图文闭环基线；公开图文、视频发布、定时发布继续后置。
+- M5 已完成图谱视图初版和记忆消费侧初版，但第三片“RAG 入库门槛与召回依据展示”尚未落到业务代码。
+- 现有计划 `docs/superpowers/plans/2026-06-13-m5-rag-eligibility-and-recall-evidence.md` 可作为下一步执行计划。
+- 当前 `write_operation_memory()` 仍只按 `publish_status=success` 写入长期运营记忆，尚未检查 `rag_eligibility`。
+- 当前 `record_from_state()` 尚未保存 `rag_eligibility`，API summary 尚未暴露记忆跳过原因，工作台尚未展示 `/memory/graph` 召回依据。
+
+下一步建议：
+- 直接执行 M5 第三片计划，顺序为：运营记忆写入门槛 -> 运营记忆记录留痕 -> API 摘要字段 -> 工作台召回依据展示 -> 文档与回归收口。
+- 本轮继续保持边界：不引入 embedding、向量库、图数据库、新外部服务或新的真实平台写入行为。
+
 ## 2026-06-13 项目阅读与下一主线确认
 
 本次目标是阅读当前项目状态，明确下一步主线任务。已对照 `AGENTS.md`、`memory/current_progress.md`、`memory/project_status_and_roadmap.md` 和根目录 `从0实现指导手册.md` 的 M0-M6 主线。
