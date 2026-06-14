@@ -1,5 +1,19 @@
 # 当前工程进度
 
+## 2026-06-14 M5 合规留痕与召回解释可见化设计确认
+
+本轮开始 M5 第五片设计：在第四片规则版合规风险召回之后，补齐 operation memory 合规字段留痕、API 暴露、结构化合规风险召回优先级，以及工作台召回解释的轻量展示。
+
+已完成：
+- 已确认下一片采用“合规留痕与召回解释可见化”方案，并允许在同一条链路内适度扩大范围。
+- 已新增中文设计文档：`docs/superpowers/specs/2026-06-14-m5-compliance-memory-and-recall-visibility-design.md`。
+- 设计范围包含 operation memory 合规字段、memory records API、`historical_compliance_risks` 结构化来源优先、工作台相似经验/历史风险/召回解释展示。
+- 明确本轮不做 embedding、向量库、历史大迁移、复杂图谱可视化或真实平台写入。
+
+下一步：
+- 写实施计划并按 TDD 执行。
+- 优先覆盖 operation store 留痕、API compact、memory graph 结构化命中、工作台静态渲染和相关回归。
+
 ## 2026-06-14 M5 规则版相似经验与合规风险召回完成
 
 本轮完成 M5 第四片：在不引入 embedding、向量库、图数据库或新外部服务的前提下，用规则版增强现有 `graphrag_memory`，让系统能基于当前痛点和合规风险召回跨主题相似经验与历史风险提醒。
