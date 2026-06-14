@@ -61,6 +61,14 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def validate_final_run(final: dict[str, Any], *, engine: str) -> list[str]:
+    issues: list[str] = []
+    summary = final.get("summary") if isinstance(final.get("summary"), dict) else {}
+    if engine == "langgraph" and "memory_context_summary" not in summary:
+        issues.append("missing memory_context_summary in LangGraph run summary")
+    return issues
+
+
 def main() -> int:
     args = build_parser().parse_args()
     base_url = args.base_url.rstrip("/")
@@ -125,6 +133,10 @@ def main() -> int:
         return 2
 
     _print_json(final)
+    validation_issues = validate_final_run(final, engine=args.engine)
+    if validation_issues:
+        _print_json({"validation_issues": validation_issues})
+        return 1
     return 0 if final.get("status") == "success" else 1
 
 

@@ -34,6 +34,7 @@ from app.run_events import record_run_event
 from app.run_queue import LocalRunQueue, SQLiteRunQueue
 from app.run_store import LocalRunStore, SQLiteRunStore
 from memory.operation_store import load_history, operation_memory_path, update_record_performance
+from nodes.memory_context import build_generation_memory_context
 from platforms import collector as collector_platform
 from platforms import creator as creator_platform
 from platforms import platform_guardrails
@@ -395,6 +396,24 @@ def platform_status() -> dict[str, Any]:
     }
 
 
+def _memory_context_summary(state: dict[str, Any]) -> dict[str, Any]:
+    memory = state.get("graphrag_memory") if isinstance(state.get("graphrag_memory"), dict) else {}
+    graph = memory.get("graph") if isinstance(memory.get("graph"), dict) else {}
+    context = build_generation_memory_context(state, limit=3)
+    explanations = context.get("recall_explanations") or []
+    return {
+        "enabled": bool(context.get("enabled")),
+        "query": context.get("query") or "",
+        "graph_record_count": _int(graph.get("record_count"), default=0),
+        "recommended_content_type_count": len(context.get("recommended_content_types") or []),
+        "recall_evidence_count": len(context.get("recall_evidence") or []),
+        "similar_experience_count": len(context.get("similar_experience_records") or []),
+        "historical_compliance_risk_count": len(context.get("historical_compliance_risks") or []),
+        "recall_explanation_count": len(explanations),
+        "recall_explanations": explanations[:2],
+    }
+
+
 def _state_summary(state: dict[str, Any]) -> dict[str, Any]:
     failure_category = _summary_failure_category(state)
     return {
@@ -425,6 +444,7 @@ def _state_summary(state: dict[str, Any]) -> dict[str, Any]:
         "operation_record_id": state.get("operation_record_id"),
         "operation_memory_skip_reason": state.get("operation_memory_skip_reason"),
         "operation_memory_skip_detail": state.get("operation_memory_skip_detail") or {},
+        "memory_context_summary": _memory_context_summary(state),
         "performance_data": state.get("performance_data") or {},
         "performance_score": _int(state.get("performance_score"), default=0),
         "review_summary": state.get("review_summary"),

@@ -23,6 +23,24 @@ def test_parser_accepts_api_token() -> None:
     assert args.api_token == "secret-token"
 
 
+def test_validate_final_run_requires_langgraph_memory_context_summary() -> None:
+    assert check_api_run.validate_final_run(
+        {
+            "status": "success",
+            "summary": {
+                "run_status": "waiting_review",
+                "memory_context_summary": {"enabled": False},
+            },
+        },
+        engine="langgraph",
+    ) == []
+
+    assert check_api_run.validate_final_run(
+        {"status": "success", "summary": {"run_status": "waiting_review"}},
+        engine="langgraph",
+    ) == ["missing memory_context_summary in LangGraph run summary"]
+
+
 def test_print_json_handles_gbk_stdout_with_emoji(monkeypatch) -> None:
     raw = io.BytesIO()
     stdout = io.TextIOWrapper(raw, encoding="gbk", errors="strict")

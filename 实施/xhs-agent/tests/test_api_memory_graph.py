@@ -52,6 +52,75 @@ def test_state_summary_exposes_operation_memory_skip_detail() -> None:
     assert summary["operation_memory_skip_detail"]["blocking_reasons"] == ["评论样本较少"]
 
 
+def test_state_summary_exposes_langgraph_memory_context_summary() -> None:
+    summary = api._state_summary(
+        {
+            "graphrag_memory": {
+                "query": "小红书选题",
+                "graph": {"record_count": 3},
+                "recommended_content_types": [
+                    {"content_type": "step_tutorial", "count": 2, "max_score": 90}
+                ],
+                "recall_evidence": [{"record_id": "op_1"}, {"record_id": "op_2"}],
+                "similar_experience_records": [{"record_id": "op_sim", "reason": "痛点相似"}],
+                "historical_compliance_risks": [
+                    {"record_id": "op_risk", "risk_level": "medium", "reason": "风险相似"}
+                ],
+                "recall_explanations": [
+                    {
+                        "type": "similar_experience",
+                        "record_id": "op_sim",
+                        "matched_terms": ["第一步"],
+                        "matched_fields": ["pain_points"],
+                        "reason": "当前痛点与历史记录相似。",
+                    },
+                    {
+                        "type": "historical_compliance_risk",
+                        "record_id": "op_risk",
+                        "matched_terms": ["一定"],
+                        "matched_fields": ["compliance_summary"],
+                        "reason": "当前合规问题与历史风险相似。",
+                    },
+                    {
+                        "type": "similar_experience",
+                        "record_id": "op_extra",
+                        "matched_terms": ["多余"],
+                        "matched_fields": ["review_summary"],
+                        "reason": "第三条不进入摘要样本。",
+                    },
+                ],
+            }
+        }
+    )
+
+    assert summary["memory_context_summary"] == {
+        "enabled": True,
+        "query": "小红书选题",
+        "graph_record_count": 3,
+        "recommended_content_type_count": 1,
+        "recall_evidence_count": 2,
+        "similar_experience_count": 1,
+        "historical_compliance_risk_count": 1,
+        "recall_explanation_count": 3,
+        "recall_explanations": [
+            {
+                "type": "similar_experience",
+                "record_id": "op_sim",
+                "matched_terms": ["第一步"],
+                "matched_fields": ["pain_points"],
+                "reason": "当前痛点与历史记录相似。",
+            },
+            {
+                "type": "historical_compliance_risk",
+                "record_id": "op_risk",
+                "matched_terms": ["一定"],
+                "matched_fields": ["compliance_summary"],
+                "reason": "当前合规问题与历史风险相似。",
+            },
+        ],
+    }
+
+
 def test_compact_memory_record_exposes_rag_eligibility() -> None:
     compact = api._compact_memory_record(
         {

@@ -1,5 +1,35 @@
 # 当前工程进度
 
+## 2026-06-14 LangGraph M5 记忆上下文可观测性增强
+
+本轮继续未完成主线，并增加一组与真实小流量复验直接相关的任务：不触发真实平台写入，而是先让 LangGraph-first run 在进入审核前能稳定暴露 M5 记忆上下文摘要，便于后续验证 `graphrag_memory -> memory_context -> 生成 -> 合规 -> human_review` 是否真的连通。
+
+已完成：
+- `app/api.py` 的 `_state_summary()` 新增 `memory_context_summary`，包含 `enabled`、`query`、图谱记录数、推荐结构数、召回证据数、相似经验数、历史合规风险数、召回解释数，以及前两条召回解释样本。
+- `tests/test_api_memory_graph.py` 覆盖 `_state_summary()` 对 LangGraph/M5 记忆上下文摘要的投影。
+- `tests/test_api_langgraph_resume.py` 覆盖默认 LangGraph run 即使冷启动无历史记忆，也会稳定返回 `memory_context_summary.enabled=false`。
+- `scripts/check_api_run.py` 新增 `validate_final_run()`；LangGraph smoke 若缺少 `memory_context_summary` 会返回验证失败，方便真实小流量复验时自动发现主链观测断点。
+- `tests/test_check_api_run_auth.py` 覆盖脚本级 LangGraph summary 校验。
+
+验证：
+- RED：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_api_memory_graph.py::test_state_summary_exposes_langgraph_memory_context_summary tests/test_api_langgraph_resume.py::test_create_run_langgraph_waits_for_review -q` 先出现 `2 failed`，原因是 summary 缺少 `memory_context_summary`。
+- RED：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_check_api_run_auth.py::test_validate_final_run_requires_langgraph_memory_context_summary -q` 先因 `validate_final_run` 不存在失败。
+- GREEN：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_api_memory_graph.py tests/test_api_langgraph_resume.py tests/test_memory_context.py tests/test_generation_memory_context.py tests/test_check_api_run_auth.py -q` -> `23 passed`。
+- 相关主链回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_node.py tests/test_strategy_memory_context.py tests/test_langgraph_runtime.py tests/test_graph_run_events.py -q` -> `19 passed`。
+- 编译检查：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes scripts tests` -> exit code 0。
+
+调试记录：
+- 不要并行运行多个 pytest 命令；`pytest.ini` 固定 `--basetemp=data/pytest_tmp_safe`，并行 pytest 进程会争用并清理同一个临时目录，可能导致 setup 阶段 `FileNotFoundError`。
+
+当前限制：
+- 本轮没有触发真实平台发布或真实采集，只增强 LangGraph 主链可观测性。
+- `memory_context_summary` 是摘要，不是完整图谱或完整 prompt payload。
+- embedding/向量召回、历史大迁移和复杂图谱可视化仍未完成。
+
+下一步建议：
+- 用 `scripts/check_api_run.py --engine langgraph` 做 mock API smoke，确认脚本级校验能在本地服务上工作。
+- 然后再考虑真实 Cookie 小流量复验，优先只跑到 `waiting_review`，不要直接扩大真实发布范围。
+
 ## 2026-06-14 M5 召回解释进入 LangGraph 生成上下文
 
 本轮继续 M5 主线，并明确保持 LangGraph-first：不新增旁路流程，不回到 API 层拼接生成链路，而是把已有 `graphrag_memory.recall_explanations` 压缩进 `nodes.memory_context.build_generation_memory_context()`，让图文/视频生成节点通过 LangGraph state 消费“为什么召回这些相似经验和历史合规风险”。

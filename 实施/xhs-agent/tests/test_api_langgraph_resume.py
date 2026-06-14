@@ -48,6 +48,17 @@ def test_create_run_langgraph_waits_for_review(isolated_langgraph_api) -> None:
     assert record["summary"]["run_status"] == "waiting_review"
     assert record["summary"]["publish_status"] == "pending"
     assert record["summary"]["human_approved"] is False
+    assert record["summary"]["memory_context_summary"] == {
+        "enabled": False,
+        "query": "",
+        "graph_record_count": 0,
+        "recommended_content_type_count": 0,
+        "recall_evidence_count": 0,
+        "similar_experience_count": 0,
+        "historical_compliance_risk_count": 0,
+        "recall_explanation_count": 0,
+        "recall_explanations": [],
+    }
     assert record["state"]["review_required"] is True
 
 

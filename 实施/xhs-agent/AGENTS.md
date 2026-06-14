@@ -44,7 +44,7 @@
 - M25 已完成平台安全护栏：Cookie 预检、发布日限、随机延时、失败停手和本地 guardrail 状态记录。
 - M26 已完成发布状态等待：按需只读轮询 creator 作品列表，避免私密发布后短暂 `not_found` 误判。
 - 最新运行时主线已收敛为 LangGraph-first：API/CLI 默认 `engine=langgraph`，`engine=local` 仅保留为显式兼容路径。
-- 最近验证状态：M5 召回解释进入 LangGraph 生成上下文后，M5 记忆/生成回归 `21 passed`，LangGraph runtime/API 回归 `11 passed`，`compileall nodes app tests` 通过；M5 第五片完成时相关回归 `21 passed`、记忆上下文回归 `13 passed`、`compileall app nodes memory tests` 通过。旧 SQLite stack 健康/停止/日志脚本定点测试 `9 passed`，健康脚本 `-ConfigOnly` / `-SkipApi` 通过，停止脚本 dry-run 通过，日志脚本通过；真实 creator 只读批量同步通过，`total=2`、`succeeded=2`、`failed=0`。
+- 最近验证状态：LangGraph M5 记忆上下文可观测性增强后，API/M5/脚本回归 `23 passed`，M5/LangGraph 主链回归 `19 passed`，`compileall app nodes scripts tests` 通过；M5 召回解释进入 LangGraph 生成上下文后，M5 记忆/生成回归 `21 passed`，LangGraph runtime/API 回归 `11 passed`。旧 SQLite stack 健康/停止/日志脚本定点测试 `9 passed`，健康脚本 `-ConfigOnly` / `-SkipApi` 通过，停止脚本 dry-run 通过，日志脚本通过；真实 creator 只读批量同步通过，`total=2`、`succeeded=2`、`failed=0`。
 
 ## 从0手册对照后的未完成主线
 
@@ -93,6 +93,7 @@
 
 - 最近主线代码已包含 M5 第五片合规留痕与召回解释可见化，以及召回解释进入 LangGraph 生成上下文的最新改动；本地 `master` 继续领先 `origin/master`，远端同步主要走现有 PR 分支。
 - 当前只应有项目记忆/协作约定类文档变更；新线程开始后，先跑 `git status --short --branch` 和必要测试，确认工作树状态。
+- 不要并行运行多个 pytest 命令：`pytest.ini` 固定 `--basetemp=data/pytest_tmp_safe`，并行 pytest 会争用同一临时目录，可能导致 setup 阶段 `FileNotFoundError`。
 - 远端 `origin/master` 是否已经同步需要重新 `git fetch origin` 后确认；当前环境曾因 `.git/FETCH_HEAD` 权限无法自动 fetch，必要时由用户手动核验。
 - 旧 worktree `.worktrees/m5-rag-eligibility-recall-evidence` 已在用户授权后用 `git worktree remove` 清理；本地分支 `codex/m5-rag-eligibility-recall-evidence` 仍保留，后续如确认不再需要可再单独删除。
 
