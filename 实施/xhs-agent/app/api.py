@@ -571,13 +571,16 @@ def _build_run_request(payload: dict[str, Any]) -> dict[str, Any]:
         "engine": engine,
         "collect_limit": _int(payload.get("collect_limit"), default=5),
         "save_collection": _bool(payload.get("save_collection"), default=False),
+        "stage_override": str(payload.get("stage_override") or "").strip() or None,
+        "product_name": str(payload.get("product_name") or "").strip(),
+        "product_selling_points": str(payload.get("product_selling_points") or "").strip(),
     }
 
     return request_payload
 
 
 def _initial_state_from_request(request_payload: dict[str, Any]) -> dict[str, Any]:
-    return {
+    initial = {
         "user_topic": request_payload["topic"],
         "target_user": request_payload["target_user"],
         "user_selected_format": request_payload["format"],
@@ -587,6 +590,19 @@ def _initial_state_from_request(request_payload: dict[str, Any]) -> dict[str, An
         "save_collection": request_payload["save_collection"],
         "run_status": "queued",
     }
+
+    stage_override = request_payload.get("stage_override")
+    if stage_override and stage_override in ("cold_start", "growth", "monetization_ready"):
+        initial["stage_override"] = stage_override
+
+    product_name = str(request_payload.get("product_name") or "").strip()
+    if product_name:
+        initial["user_product_name"] = product_name
+        initial["user_product_selling_points"] = str(
+            request_payload.get("product_selling_points") or ""
+        ).strip()
+
+    return initial
 
 
 def _run_workflow(
