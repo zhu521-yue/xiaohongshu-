@@ -49,6 +49,13 @@ def _safe_int(value: object) -> int:
 def _choose_content_type(state: XHSState) -> str:
     text = _pain_points_text(state)
 
+    # 阶段二软广：当用户提供了商品名称且当前阶段允许软广时触发
+    if (
+        state.get("user_product_name")
+        and state.get("allow_soft_ad", False)
+    ):
+        return "soft_ad"
+
     if any(keyword in text for keyword in AVOID_MISTAKE_KEYWORDS):
         return "avoid_mistakes"
 
