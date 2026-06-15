@@ -408,6 +408,7 @@ def _memory_context_summary(state: dict[str, Any]) -> dict[str, Any]:
     semantic_records = memory.get("semantic_recall_records")
     semantic_model = ""
     semantic_dimensions = 0
+    semantic_top_score = 0.0
     if isinstance(semantic_records, list):
         for item in semantic_records:
             if not isinstance(item, dict):
@@ -416,8 +417,10 @@ def _memory_context_summary(state: dict[str, Any]) -> dict[str, Any]:
                 semantic_model = str(item.get("embedding_model") or "")
             if not semantic_dimensions:
                 semantic_dimensions = _int(item.get("embedding_dimensions"), default=0)
-            if semantic_model and semantic_dimensions:
-                break
+            semantic_top_score = max(
+                semantic_top_score,
+                _float(item.get("semantic_score"), default=0.0),
+            )
     return {
         "enabled": bool(context.get("enabled")),
         "query": context.get("query") or "",
@@ -427,6 +430,8 @@ def _memory_context_summary(state: dict[str, Any]) -> dict[str, Any]:
         "semantic_recall_count": _list_count(memory.get("semantic_recall_records")),
         "semantic_embedding_model": semantic_model,
         "semantic_embedding_dimensions": semantic_dimensions,
+        "semantic_recall_top_score": round(semantic_top_score, 4),
+        "semantic_recall_threshold": round(float(memory_graph_service.SEMANTIC_RECALL_MIN_SCORE), 4),
         "similar_experience_count": _list_count(memory.get("similar_experience_records")),
         "historical_compliance_risk_count": _list_count(memory.get("historical_compliance_risks")),
         "recall_explanation_count": _list_count(memory.get("recall_explanations")),

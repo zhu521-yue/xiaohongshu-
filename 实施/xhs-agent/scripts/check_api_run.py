@@ -223,6 +223,8 @@ def _validate_memory_context_summary(value: Any) -> list[str]:
 
     semantic_model = value.get("semantic_embedding_model")
     semantic_dimensions = value.get("semantic_embedding_dimensions")
+    semantic_top_score = value.get("semantic_recall_top_score")
+    semantic_threshold = value.get("semantic_recall_threshold")
     semantic_count = value.get("semantic_recall_count")
     if not isinstance(semantic_model, str):
         issues.append("memory_context_summary.semantic_embedding_model must be a string")
@@ -235,6 +237,12 @@ def _validate_memory_context_summary(value: Any) -> list[str]:
             issues.append(
                 "memory_context_summary.semantic_embedding_dimensions must be positive when semantic recall exists"
             )
+    if not _is_non_negative_number(semantic_top_score):
+        issues.append("memory_context_summary.semantic_recall_top_score must be a non-negative number")
+    elif _is_non_negative_int(semantic_count) and semantic_count > 0 and semantic_top_score <= 0:
+        issues.append("memory_context_summary.semantic_recall_top_score must be positive when semantic recall exists")
+    if not _is_non_negative_number(semantic_threshold):
+        issues.append("memory_context_summary.semantic_recall_threshold must be a non-negative number")
 
     explanations = value.get("recall_explanations")
     if not isinstance(explanations, list):

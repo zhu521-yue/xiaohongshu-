@@ -57,6 +57,8 @@ def test_create_run_langgraph_waits_for_review(isolated_langgraph_api) -> None:
         "semantic_recall_count": 0,
         "semantic_embedding_model": "",
         "semantic_embedding_dimensions": 0,
+        "semantic_recall_top_score": 0.0,
+        "semantic_recall_threshold": 0.08,
         "similar_experience_count": 0,
         "historical_compliance_risk_count": 0,
         "recall_explanation_count": 0,

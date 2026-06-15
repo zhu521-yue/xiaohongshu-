@@ -1,5 +1,38 @@
 # 当前工程进度
 
+## 2026-06-15 LangGraph M5 语义召回 score summary 与阈值质量门槛
+
+本轮继续 M5 主线，并保持 LangGraph-first：不引入外部 embedding 服务、不新增向量库，而是在现有 `memory_context_summary` 上继续补齐语义召回评分可观测性，方便后续替换 embedding provider 或接入小型向量索引时，用同一套 API summary 和 smoke 脚本观察召回质量。
+
+已完成：
+- `app/api.py` 的 `memory_context_summary` 新增 `semantic_recall_top_score`，从原始 `graphrag_memory.semantic_recall_records` 中计算最高语义召回分。
+- `memory_context_summary` 新增 `semantic_recall_threshold`，暴露当前本地召回阈值 `SEMANTIC_RECALL_MIN_SCORE=0.08`。
+- 空记忆时 summary 稳定返回 `semantic_recall_top_score=0.0`、`semantic_recall_threshold=0.08`。
+- `scripts/check_api_run.py` 增强 summary 校验：`semantic_recall_top_score` 和 `semantic_recall_threshold` 必须是非负数字；当 `semantic_recall_count > 0` 时，top score 必须大于 0。
+- 修正上一轮进度记录中的过期远端同步状态：`0246f8d` 已成功推送并核验到 `codex/m5-rag-eligibility-recall`。
+
+验证：
+- RED：API summary、LangGraph 冷启动 summary 和脚本畸形 summary 测试先因缺少 score/threshold 字段或校验失败，共 `5 failed`。
+- GREEN：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_api_memory_graph.py::test_state_summary_exposes_langgraph_memory_context_summary tests/test_api_memory_graph.py::test_memory_context_summary_counts_raw_memory_items_but_limits_samples tests/test_api_langgraph_resume.py::test_create_run_langgraph_waits_for_review tests/test_check_api_run_auth.py::test_validate_final_run_rejects_malformed_langgraph_memory_context_summary tests/test_check_api_run_auth.py::test_validate_final_run_requires_semantic_recall_explanation_embedding_metadata -q` -> `5 passed`。
+- 相关回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_api_memory_graph.py tests/test_check_api_run_auth.py tests/test_api_langgraph_resume.py tests/test_memory_graph.py tests/test_memory_context.py -q` -> `39 passed`。
+- M5/LangGraph 相关回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_context.py tests/test_api_memory_graph.py tests/test_check_api_run_auth.py tests/test_generation_memory_context.py tests/test_strategy_memory_context.py tests/test_memory_node.py tests/test_langgraph_runtime.py tests/test_graph_run_events.py tests/test_api_langgraph_resume.py -q` -> `59 passed`。
+- 编译检查：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes scripts tests` -> exit code 0。
+- 全量测试：`D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `333 passed`。
+
+当前效果：
+- 工作台/API summary 不只知道语义召回数量和 embedding 模型，还能看到当前最高召回分与阈值。
+- smoke 脚本能发现“语义召回有结果但分数字段缺失或为 0”的静默降级。
+- 这仍然保持在 LangGraph 记忆链路内，没有引入外部服务或旁路流程。
+
+当前限制：
+- 仍未接入外部 embedding provider 或独立向量索引。
+- 仍未做历史 operation memory 大迁移/质量补标。
+- 本轮没有真实采集、真实发布或平台写入。
+
+下一步建议：
+- 继续 M5 时，可在当前 score/threshold summary 基础上做最小 provider 抽象或小型向量索引入口。
+- 阶段一收口仍优先 Cookie 失效提示、长期运行监控和告警。
+
 ## 2026-06-15 LangGraph M5 语义召回解释 embedding 元信息增强
 
 本轮继续 M5 主线，并保持 LangGraph-first：不引入外部 embedding 服务、不新增向量库，而是在现有 `semantic_recall_records` 与 `recall_explanations` 契约上补齐解释项级别的 embedding 可观测性，让 LangGraph 生成上下文、API summary 样本和 smoke 质量门槛能够看到同一组语义召回元信息。
@@ -29,10 +62,9 @@
 当前限制：
 - 本轮仍是项目内本地 hashing embedding 可观测性增强，不是外部 embedding 服务或独立向量数据库接入。
 - 本轮没有新增真实采集、真实发布或平台写入。
-- 远端同步仍受网络影响：`git push --verbose --porcelain origin master:codex/m5-rag-eligibility-recall` 提权后仍失败，错误为 `Recv failure: Connection was reset`；上一轮 `157212e` 和本轮后续提交需要网络恢复后继续推送。
+- 远端同步后来已恢复：`0246f8d feat: expose semantic recall explanation embeddings` 已推送到 `codex/m5-rag-eligibility-recall`，并核验远端 SHA 为 `0246f8d55d231f7ca09df23191086b55bad25152`。
 
 下一步建议：
-- 网络恢复后先同步当前分支到 `codex/m5-rag-eligibility-recall` 并用 `git ls-remote` 核验远端 SHA。
 - 继续 M5 时，可基于当前解释项和 smoke 质量门槛评估可选 embedding provider 或小型向量索引；阶段一收口仍优先 Cookie 失效提示、长期运行监控和告警。
 
 ## 2026-06-14 LangGraph M5 本地 embedding 召回可观测性增强

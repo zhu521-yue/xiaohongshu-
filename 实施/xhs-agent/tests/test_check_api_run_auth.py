@@ -153,6 +153,8 @@ def test_validate_final_run_requires_langgraph_memory_context_summary() -> None:
                     "semantic_recall_count": 0,
                     "semantic_embedding_model": "",
                     "semantic_embedding_dimensions": 0,
+                    "semantic_recall_top_score": 0.0,
+                    "semantic_recall_threshold": 0.08,
                     "similar_experience_count": 0,
                     "historical_compliance_risk_count": 0,
                     "recall_explanation_count": 0,
@@ -181,6 +183,8 @@ def test_validate_final_run_rejects_malformed_langgraph_memory_context_summary()
                     "semantic_recall_count": "1",
                     "semantic_embedding_model": 123,
                     "semantic_embedding_dimensions": "64",
+                    "semantic_recall_top_score": "0.2",
+                    "semantic_recall_threshold": None,
                     "recall_explanation_count": 1,
                     "recall_explanations": [{}, {}],
                 },
@@ -196,6 +200,8 @@ def test_validate_final_run_rejects_malformed_langgraph_memory_context_summary()
     assert "memory_context_summary.semantic_recall_count must be a non-negative integer" in issues
     assert "memory_context_summary.semantic_embedding_model must be a string" in issues
     assert "memory_context_summary.semantic_embedding_dimensions must be a non-negative integer" in issues
+    assert "memory_context_summary.semantic_recall_top_score must be a non-negative number" in issues
+    assert "memory_context_summary.semantic_recall_threshold must be a non-negative number" in issues
     assert "memory_context_summary.recall_explanations has more samples than recall_explanation_count" in issues
 
 
@@ -213,6 +219,8 @@ def test_validate_final_run_can_require_enabled_memory_context() -> None:
                 "semantic_recall_count": 0,
                 "semantic_embedding_model": "",
                 "semantic_embedding_dimensions": 0,
+                "semantic_recall_top_score": 0.0,
+                "semantic_recall_threshold": 0.08,
                 "similar_experience_count": 0,
                 "historical_compliance_risk_count": 0,
                 "recall_explanation_count": 0,
@@ -242,6 +250,8 @@ def test_validate_final_run_can_require_recall_explanation_minimum() -> None:
                 "semantic_recall_count": 0,
                 "semantic_embedding_model": "",
                 "semantic_embedding_dimensions": 0,
+                "semantic_recall_top_score": 0.0,
+                "semantic_recall_threshold": 0.08,
                 "similar_experience_count": 1,
                 "historical_compliance_risk_count": 0,
                 "recall_explanation_count": 1,
@@ -271,6 +281,8 @@ def test_validate_final_run_can_require_recall_explanation_type() -> None:
                 "semantic_recall_count": 0,
                 "semantic_embedding_model": "",
                 "semantic_embedding_dimensions": 0,
+                "semantic_recall_top_score": 0.0,
+                "semantic_recall_threshold": 0.08,
                 "similar_experience_count": 1,
                 "historical_compliance_risk_count": 0,
                 "recall_explanation_count": 1,
@@ -303,6 +315,8 @@ def test_validate_final_run_requires_semantic_recall_explanation_embedding_metad
                 "semantic_recall_count": 1,
                 "semantic_embedding_model": "local_hashing_embedding_v1",
                 "semantic_embedding_dimensions": 64,
+                "semantic_recall_top_score": 0.0,
+                "semantic_recall_threshold": 0.08,
                 "similar_experience_count": 0,
                 "historical_compliance_risk_count": 0,
                 "recall_explanation_count": 1,
@@ -312,6 +326,7 @@ def test_validate_final_run_requires_semantic_recall_explanation_embedding_metad
     }
 
     assert check_api_run.validate_final_run(final, engine="langgraph") == [
+        "memory_context_summary.semantic_recall_top_score must be positive when semantic recall exists",
         "memory_context_summary.recall_explanations[0].embedding_model is required for semantic_recall",
         "memory_context_summary.recall_explanations[0].embedding_dimensions must be positive for semantic_recall",
         "memory_context_summary.recall_explanations[0].semantic_score must be a non-negative number for semantic_recall",
@@ -332,6 +347,8 @@ def test_validate_final_run_can_require_recall_explanation_type_from_full_state(
                 "semantic_recall_count": 1,
                 "semantic_embedding_model": "local_hashing_embedding_v1",
                 "semantic_embedding_dimensions": 64,
+                "semantic_recall_top_score": 0.42,
+                "semantic_recall_threshold": 0.08,
                 "similar_experience_count": 1,
                 "historical_compliance_risk_count": 1,
                 "recall_explanation_count": 3,

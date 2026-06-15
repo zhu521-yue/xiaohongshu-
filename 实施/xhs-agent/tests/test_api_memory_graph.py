@@ -68,6 +68,7 @@ def test_state_summary_exposes_langgraph_memory_context_summary() -> None:
                         "reason": "semantic_recall",
                         "embedding_model": "local_hashing_embedding_v1",
                         "embedding_dimensions": 64,
+                        "semantic_score": 0.42,
                     }
                 ],
                 "similar_experience_records": [{"record_id": "op_sim", "reason": "痛点相似"}],
@@ -110,6 +111,8 @@ def test_state_summary_exposes_langgraph_memory_context_summary() -> None:
         "semantic_recall_count": 1,
         "semantic_embedding_model": "local_hashing_embedding_v1",
         "semantic_embedding_dimensions": 64,
+        "semantic_recall_top_score": 0.42,
+        "semantic_recall_threshold": 0.08,
         "similar_experience_count": 1,
         "historical_compliance_risk_count": 1,
         "recall_explanation_count": 3,
@@ -156,24 +159,28 @@ def test_memory_context_summary_counts_raw_memory_items_but_limits_samples() -> 
                         "reason": "semantic_recall",
                         "embedding_model": "local_hashing_embedding_v1",
                         "embedding_dimensions": 64,
+                        "semantic_score": 0.16,
                     },
                     {
                         "record_id": "op_sem_2",
                         "reason": "semantic_recall",
                         "embedding_model": "local_hashing_embedding_v1",
                         "embedding_dimensions": 64,
+                        "semantic_score": 0.37,
                     },
                     {
                         "record_id": "op_sem_3",
                         "reason": "semantic_recall",
                         "embedding_model": "local_hashing_embedding_v1",
                         "embedding_dimensions": 64,
+                        "semantic_score": 0.24,
                     },
                     {
                         "record_id": "op_sem_4",
                         "reason": "semantic_recall",
                         "embedding_model": "local_hashing_embedding_v1",
                         "embedding_dimensions": 64,
+                        "semantic_score": 0.11,
                     },
                 ],
                 "similar_experience_records": [
@@ -204,6 +211,8 @@ def test_memory_context_summary_counts_raw_memory_items_but_limits_samples() -> 
     assert memory_summary["semantic_recall_count"] == 4
     assert memory_summary["semantic_embedding_model"] == "local_hashing_embedding_v1"
     assert memory_summary["semantic_embedding_dimensions"] == 64
+    assert memory_summary["semantic_recall_top_score"] == 0.37
+    assert memory_summary["semantic_recall_threshold"] == 0.08
     assert memory_summary["similar_experience_count"] == 4
     assert memory_summary["historical_compliance_risk_count"] == 4
     assert memory_summary["recall_explanation_count"] == 4
