@@ -553,6 +553,31 @@ def find_successful_patterns(topic: str, limit: int = 3, path: Path | None = Non
     return successful_patterns_from_records(records, limit=limit)
 
 
+def find_soft_ad_records_this_week(path: Path | None = None) -> list[dict[str, Any]]:
+    """Return soft_ad records published within the last 7 days, most recent first."""
+    from datetime import datetime as dt, timedelta
+
+    history = load_history(path)
+    cutoff = (dt.now() - timedelta(days=7)).isoformat(timespec="seconds")
+
+    matches = []
+    for record in history.get("records") or []:
+        if not isinstance(record, dict):
+            continue
+        if record.get("content_type") != "soft_ad":
+            continue
+        created_at = str(record.get("created_at") or record.get("publish_time") or "")
+        if created_at and created_at < cutoff:
+            continue
+        matches.append(record)
+
+    matches.sort(
+        key=lambda r: str(r.get("created_at") or r.get("publish_time") or ""),
+        reverse=True,
+    )
+    return matches
+
+
 def build_review_summary(record: Dict[str, Any]) -> tuple[str, str]:
     review = build_review_result(record)
     return review["review_summary"], review["next_action"]

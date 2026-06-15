@@ -83,7 +83,44 @@ def decide_content_strategy(state: XHSState) -> dict:
     if not state.get("allow_soft_ad", False) and content_type == "soft_ad":
         content_type = DEFAULT_CONTENT_TYPE
 
-    return {
+    updates: dict = {
         "content_type": content_type,
         "content_format": content_format,
+    }
+
+    # Frequency guardrail pre-check for soft_ad
+    if content_type == "soft_ad":
+        freq_check = _check_soft_ad_frequency()
+        updates["soft_ad_frequency_check"] = freq_check
+        if not freq_check["allowed"]:
+            updates["content_type"] = DEFAULT_CONTENT_TYPE
+
+    return updates
+
+
+def _check_soft_ad_frequency() -> dict:
+    """Check soft-ad weekly limit and back-to-back rule from operation memory."""
+    from memory.operation_store import find_soft_ad_records_this_week
+
+    records = find_soft_ad_records_this_week()
+    this_week_count = len(records)
+    last_record = records[0] if records else None
+
+    from app.rules import load_compliance_rules
+    rules = load_compliance_rules().get("soft_ad_rules") or {}
+    weekly_limit = int(rules.get("weekly_limit") or 2)
+    no_back_to_back = bool(rules.get("no_back_to_back"))
+
+    issues = []
+    if this_week_count >= weekly_limit:
+        issues.append(f"本周软广已达上限 {weekly_limit} 篇")
+    if no_back_to_back and last_record:
+        issues.append("不允许连发软广")
+
+    return {
+        "allowed": len(issues) == 0,
+        "this_week_count": this_week_count,
+        "weekly_limit": weekly_limit,
+        "last_published_at": last_record.get("created_at") if last_record else None,
+        "issues": issues,
     }
