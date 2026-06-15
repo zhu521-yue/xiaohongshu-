@@ -19,18 +19,18 @@
 
 ## 当前项目目标
 
-当前主项目是“小红书两阶段多智能体运营系统”。目标是用 LangGraph 编排、复用 Spider_XHS 能力、接入国产 LLM，完成从选题洞察、真实评论采集、内容生成、合规、人工确认、发布、表现回收、复盘、GraphRAG 记忆沉淀，到阶段二软广/达人能力的闭环。
+当前主项目定位调整为“面试展示用的小红书两阶段多智能体运营系统”。目标不是追求长期生产化大而全，而是在 LangGraph-first 主链上做出相对稳定、可演示、能讲清楚架构取舍的完整两阶段版：阶段一覆盖选题洞察、真实/Mock 评论采集、内容生成、合规、人工确认、私密发布、表现回收、复盘和 GraphRAG 记忆沉淀；阶段二覆盖软广/达人能力的最小闭环，包括商品/卖点输入、软广内容生成、商业合规与频率护栏、达人/平台适配的 mock 或轻量入口。
 
 ## 当前阶段
 
-- 按 `从0实现指导手册.md` 重新校准后，当前不是“快完成”，而是：阶段一 MVP 与部分 creator 私密发布闭环已完成，完整两阶段系统仍有较多主线任务。
+- 按“面试展示用、相对稳的完整两阶段版”重新校准后：阶段一 MVP 与 creator 私密发布闭环已基本站稳，M5 GraphRAG 正在增强；后续不再优先追求公开发布、重型生产部署或复杂平台自动化，而是优先补齐两阶段演示闭环、稳定脚本、清晰记忆链路和可讲述的工程边界。
 - M0 环境与链路验证：部分完成。mock 链路和脚本齐全，真实 PC/creator Cookie 已有预检和小流量验证记录；LangGraph-first 迁移后的真实私密发布端到端复验已完成，千帆/蒲公英 Cookie 未进入。
 - M1 内容生成最小闭环：基本完成。主题到图文/视频、合规、人工审核、Markdown 保存已可用；`human_review` 已升级为 LangGraph interrupt/resume。
 - M2 只读采集：部分完成。已有 collector 薄封装、Spider_XHS 采集、评论去噪、去标识化和候选池评分初版；评论质量评分细化、Cookie 失效产品化提示仍需继续完善。
 - M3 复盘闭环 + 运营记忆：基本完成，并已扩展 SQLite operation memory、业务表、表现录入反向同步、复盘、运营记忆前端展示和历史表现补偿脚本。
-- M4 创作者平台发布：部分完成。已验证 LangGraph-first 私密图文发布、真实图片素材绑定、作品列表同步、发布状态等待、表现回填、平台指标手动/批量同步、脚本循环同步、趋势摘要和工作台同步入口；公开发布、定时发布、视频发布、后台常驻定时调度仍未完成。
+- M4 创作者平台发布：面试展示版基本够用。已验证 LangGraph-first 私密图文发布、真实图片素材绑定、作品列表同步、发布状态等待、表现回填、平台指标手动/批量同步、脚本循环同步、趋势摘要和工作台同步入口；公开发布、定时发布、公开视频发布和后台常驻调度降为后置项，除非演示必须，不再作为当前完成口径。
 - M5 GraphRAG 运营记忆增强：已完成五片规则版闭环，并继续沿 LangGraph-first 主链增强。当前已有基于 operation memory 的图谱视图与 `GET /memory/graph` 查询初版，LangGraph 记忆节点已返回 `graphrag_memory`，策略/生成节点已消费图谱记忆；`rag_eligibility` 已开始控制长期运营记忆写入，工作台已支持轻量查看召回依据、相似经验、历史合规风险、本地 embedding 语义召回和召回解释；召回解释也已进入图文/视频生成的 `memory_context`。脚本级 mock smoke 已能结构化校验 `memory_context_summary`，并可用 `--require-memory-context` / `--min-recall-explanations` / `--require-recall-explanation-type` 对有历史记忆的 LangGraph run 做更强复验；summary 现在会暴露 `semantic_embedding_model`、`semantic_embedding_dimensions`、`semantic_recall_top_score` 和 `semantic_recall_threshold`，`semantic_recall` 解释项也会透出 `embedding_model`、`embedding_dimensions` 与 `semantic_score`，脚本会在命中语义召回但 summary 或解释样本缺少 embedding 元信息、召回分为 0 时失败。`--seed-recall-memory` 已可在临时 SQLite operation memory 中种入可控历史记录和合规留痕，复验 `similar_experience`、`semantic_recall` 与 `historical_compliance_risk` 召回解释。LangGraph 主链顺序已调整为先洞察、再记忆召回，并在 `check_compliance` 后增加合规记忆刷新节点，确保当前痛点、评论洞察和合规问题都能进入图内召回链路。项目内 `local_hashing_embedding_v1` 本地 embedding 语义召回基线已完成；外部 embedding 服务/独立向量数据库、历史大迁移和复杂图谱可视化仍未完成。
-- M6 阶段二软广 + 达人：未完成。
+- M6 阶段二软广 + 达人：面试展示版尚未完成，是后续主线大头。目标收敛为最小可演示闭环，不追求真实千帆/蒲公英全量自动化。
 - M17a 已完成最小生产护栏：API token、日志落盘、敏感字段脱敏、运行配置检查和 token 烟测。
 - M17b 已完成启动模板：本地 API、SQLite API、SQLite worker 的 PowerShell 模板，并明确优先使用 `D:\Anaconda\envs\ContentShare\python.exe`。
 - M19a 已完成创作者平台连接基础适配：默认 mock、真实模式 Cookie 预检、私密图文发布入口、作品列表同步入口和命令行自测。
@@ -46,16 +46,16 @@
 - 最新运行时主线已收敛为 LangGraph-first：API/CLI 默认 `engine=langgraph`，`engine=local` 仅保留为显式兼容路径。
 - 最近验证状态：LangGraph M5 语义召回 score summary 与阈值质量门槛已通过；API/smoke/LangGraph 冷启动定点 `5 passed`，相关回归 `39 passed`，M5/LangGraph 相关回归 `59 passed`，全量测试 `333 passed`，`compileall app nodes scripts tests` 通过。此前语义召回解释 embedding 元信息增强通过：`tests/test_memory_graph.py tests/test_memory_context.py` -> `14 passed`，`tests/test_check_api_run_auth.py` -> `15 passed`。可控语义召回 mock HTTP smoke 通过，run `run_087837c15550` 最终 `status=success`、`summary.run_status=waiting_review`、`memory_context_summary.semantic_recall_count=1`，完整 state 中召回解释类型同时包含 `similar_experience`、`semantic_recall` 与 `historical_compliance_risk`。此前历史合规风险 mock HTTP smoke 通过，run `run_5440f2fc2fde` 最终 `status=success`、`summary.run_status=waiting_review`、`compliance_risk_level=medium`、`memory_context_summary.recall_explanation_count=2`，召回解释类型同时包含 `similar_experience` 与 `historical_compliance_risk`；可控相似经验召回解释 mock HTTP smoke、普通 mock HTTP smoke 和强制 memory context mock HTTP smoke 也已通过。旧 SQLite stack 健康/停止/日志脚本定点测试 `9 passed`，健康脚本 `-ConfigOnly` / `-SkipApi` 通过，停止脚本 dry-run 通过，日志脚本通过；真实 creator 只读批量同步通过，`total=2`、`succeeded=2`、`failed=0`。
 
-## 从0手册对照后的未完成主线
+## 面试展示版未完成主线
 
-1. M0/M2/M4 安全护栏产品化：
-   - Cookie 失效提示与重取流程仍需更完整的工作台/脚本入口。
-   - 真实 Cookie 状态需要在 LangGraph-first 主链小流量复验前重新确认。
-   - 采集/发布安全护栏已有初版，后续继续补长期运行监控和告警。
+1. 阶段一演示稳定性收口：
+   - Cookie 失效提示与重取流程保留为轻量工作台/脚本提示，不做复杂账号运维系统。
+   - 真实 Cookie 状态在最终演示前做一次小流量复验即可。
+   - 采集/发布安全护栏保留现有初版，补最小监控/告警或健康检查说明，不追求长期生产告警平台。
 2. M4 真实平台端到端：
    - LangGraph-first 私密图文真实闭环已完成最新复验：`waiting_review -> 绑定真实图片 -> creator 私密发布 -> 作品列表只读同步 -> /performance 回填`。
-   - 平台指标自动抓取已有手动/批量/脚本循环/工作台入口和脚本级后台调度器：`POST /creator/notes/performance-sync`、`POST /creator/notes/performance-sync/batch`、`scripts/sync_creator_note_performance.py` 和 `scripts/run_creator_performance_scheduler.py` 可从作品列表快照回填 `/performance`；统一进程编排、告警策略和完整 BI 趋势仍未完成。
-   - 公开视频/公开图文/定时发布尚未完成。
+   - 平台指标同步已有手动、批量、脚本循环和工作台入口；面试版只需要保证可演示和可解释。
+   - 公开图文、公开视频、定时发布、复杂告警策略、完整 BI 趋势和统一常驻调度不纳入当前完成口径，除非后续明确要展示。
 3. M5 GraphRAG 运营记忆增强：
    - 基于 operation memory 的主题 -> 痛点 -> 内容形式 -> 表现图谱视图已完成初版。
    - 策略/生成节点消费 `graphrag_memory` 已完成初版。
@@ -67,13 +67,12 @@
    - 历史 operation memory 大迁移/质量补标仍未完成。
    - 更完整图谱可视化仍未完成。
 4. M6 阶段二软广 + 达人：
-   - `platforms/qianfan.py` 未做。
-   - `platforms/pugongying.py` 未做。
-   - `product_node.py` 未做。
-   - 独立 `soft_ad` 生成节点未做。
-   - 商品卖点与用户痛点匹配未做。
-   - 商业合规审核、70/30 内容比例、单周软广 <= 2、不连发软广未做。
-   - 达人匹配与邀约未做。
+   - 需要补最小 `product_node.py` 或等价商品/卖点输入节点。
+   - 需要补独立 `soft_ad` 生成节点或等价 LangGraph 分支。
+   - 需要商品卖点与用户痛点匹配的轻量规则/LLM 入口。
+   - 需要商业合规审核、70/30 内容比例、单周软广 <= 2、不连发软广等演示级护栏。
+   - 千帆/蒲公英真实平台适配可用 mock/轻量接口替代，真实 Cookie 和完整自动化后置。
+   - 达人匹配与邀约做可演示的数据结构、评分和 mock 流程即可，不追求真实邀约闭环。
 5. 手册骨架偏离项：
    - `prompts/` 目录目前为空，Prompt 实际放在 `config/llm_prompts.json`。
    - 没有 `routers/content_type_router.py`。
@@ -83,11 +82,12 @@
 
 ## 当前优先级
 
-1. 不要继续优先做前端细节小功能。
-2. 把本次 LangGraph-first 真实私密发布复验作为 M4 私密图文最新稳定基线。
-3. 下一步继续 M5 或阶段一收口：优先保持 LangGraph-first 主链稳定，先做真实小流量复验；如继续 M5，则基于现有本地 embedding 召回契约评估可选 embedding provider 或小型向量索引，工作台批量选择和复杂图谱可视化可后置。
-4. 公开图文、视频、定时发布继续后置，执行前必须重新确认平台写入风险。
-5. M6 阶段二软广和达人能力最后做。
+1. 目标口径改为面试展示版：优先完成“相对稳的完整两阶段闭环”，不追求长期生产化大而全。
+2. 不要继续优先做前端细节小功能，除非它直接服务演示闭环或面试讲解。
+3. 阶段一以 LangGraph-first 私密发布闭环为稳定基线，公开图文、视频、定时发布和复杂常驻调度后置。
+4. M5 继续保持轻量：保留本地 embedding/GraphRAG 可观测链路，可做最小 provider 抽象；复杂向量库、历史大迁移和复杂图谱可视化后置。
+5. 下一条主线优先进入 M6 面试版最小闭环：商品/卖点输入 -> 软广生成 -> 商业合规/频率护栏 -> 达人/平台 mock 匹配 -> 人工审核。
+6. 每轮任务完成后继续更新记忆文档，明确哪些是面试版必做，哪些已降级为后置增强。
 
 ## 当前工作树提示
 
