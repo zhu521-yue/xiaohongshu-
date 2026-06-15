@@ -199,15 +199,22 @@ def _compact_recall_explanations(memory: dict[str, Any], limit: int) -> list[dic
         matched_fields = [str(field) for field in _as_list(item_dict.get("matched_fields")) if str(field).strip()]
         if not explanation_type and not record_id and not reason and not matched_terms:
             continue
-        result.append(
-            {
-                "type": explanation_type,
-                "record_id": record_id,
-                "matched_terms": matched_terms[:5],
-                "matched_fields": matched_fields[:5],
-                "reason": reason,
-            }
-        )
+        compact = {
+            "type": explanation_type,
+            "record_id": record_id,
+            "matched_terms": matched_terms[:5],
+            "matched_fields": matched_fields[:5],
+            "reason": reason,
+        }
+        if explanation_type == "semantic_recall":
+            compact.update(
+                {
+                    "embedding_model": str(item_dict.get("embedding_model") or ""),
+                    "embedding_dimensions": _safe_int(item_dict.get("embedding_dimensions")),
+                    "semantic_score": round(_safe_float(item_dict.get("semantic_score")), 4),
+                }
+            )
+        result.append(compact)
     return result[: max(0, int(limit))]
 
 

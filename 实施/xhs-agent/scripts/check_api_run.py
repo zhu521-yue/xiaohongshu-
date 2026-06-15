@@ -203,6 +203,10 @@ def _is_non_negative_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
 
+def _is_non_negative_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value >= 0
+
+
 def _validate_memory_context_summary(value: Any) -> list[str]:
     issues: list[str] = []
     if not isinstance(value, dict):
@@ -238,6 +242,18 @@ def _validate_memory_context_summary(value: Any) -> list[str]:
     elif _is_non_negative_int(value.get("recall_explanation_count")):
         if len(explanations) > value["recall_explanation_count"]:
             issues.append("memory_context_summary.recall_explanations has more samples than recall_explanation_count")
+        for index, item in enumerate(explanations):
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "semantic_recall":
+                continue
+            prefix = f"memory_context_summary.recall_explanations[{index}]"
+            if not isinstance(item.get("embedding_model"), str) or not item.get("embedding_model", "").strip():
+                issues.append(f"{prefix}.embedding_model is required for semantic_recall")
+            if not _is_non_negative_int(item.get("embedding_dimensions")) or item.get("embedding_dimensions") <= 0:
+                issues.append(f"{prefix}.embedding_dimensions must be positive for semantic_recall")
+            if not _is_non_negative_number(item.get("semantic_score")):
+                issues.append(f"{prefix}.semantic_score must be a non-negative number for semantic_recall")
 
     return issues
 

@@ -164,6 +164,12 @@ def test_query_memory_graph_returns_lightweight_semantic_recall() -> None:
         item["type"] == "semantic_recall" and item["record_id"] == "op_semantic"
         for item in result["recall_explanations"]
     )
+    semantic_explanation = next(
+        item for item in result["recall_explanations"] if item["type"] == "semantic_recall"
+    )
+    assert semantic_explanation["embedding_model"] == "local_hashing_embedding_v1"
+    assert semantic_explanation["embedding_dimensions"] == 64
+    assert semantic_explanation["semantic_score"] == semantic["semantic_score"]
     assert not any(item["record_id"] == "op_unrelated" for item in result["semantic_recall_records"])
 
 

@@ -191,6 +191,9 @@ def test_generation_memory_context_includes_rule_based_recall() -> None:
                         "record_id": "op_semantic",
                         "matched_terms": ["定位", "新手"],
                         "matched_fields": ["pain_points"],
+                        "embedding_model": "local_hashing_embedding_v1",
+                        "embedding_dimensions": 64,
+                        "semantic_score": 0.42,
                         "reason": "semantic_recall: 当前语义特征与历史记录相近。",
                     },
                     {
@@ -232,6 +235,9 @@ def test_generation_memory_context_includes_rule_based_recall() -> None:
             "record_id": "op_semantic",
             "matched_terms": ["定位", "新手"],
             "matched_fields": ["pain_points"],
+            "embedding_model": "local_hashing_embedding_v1",
+            "embedding_dimensions": 64,
+            "semantic_score": 0.42,
             "reason": "semantic_recall: 当前语义特征与历史记录相近。",
         },
         {

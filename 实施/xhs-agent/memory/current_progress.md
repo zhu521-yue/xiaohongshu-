@@ -1,5 +1,40 @@
 # 当前工程进度
 
+## 2026-06-15 LangGraph M5 语义召回解释 embedding 元信息增强
+
+本轮继续 M5 主线，并保持 LangGraph-first：不引入外部 embedding 服务、不新增向量库，而是在现有 `semantic_recall_records` 与 `recall_explanations` 契约上补齐解释项级别的 embedding 可观测性，让 LangGraph 生成上下文、API summary 样本和 smoke 质量门槛能够看到同一组语义召回元信息。
+
+已完成：
+- `app/memory_graph.py` 的 `semantic_recall` 召回解释新增 `embedding_model`、`embedding_dimensions` 和 `semantic_score`，直接复用已计算出的本地 embedding 召回结果。
+- `nodes/memory_context.py` 的 `recall_explanations` 压缩逻辑在 `type=semantic_recall` 时保留 embedding 模型名、维度和语义分数，图文/视频生成上下文可以继续追踪召回来源。
+- `scripts/check_api_run.py` 增加 summary 样本级校验：当 `memory_context_summary.recall_explanations` 中出现 `semantic_recall` 时，必须带非空 `embedding_model`、正数 `embedding_dimensions` 和非负数 `semantic_score`。
+- `tests/test_memory_graph.py`、`tests/test_memory_context.py` 和 `tests/test_check_api_run_auth.py` 已补齐对应契约测试。
+
+验证：
+- RED：`tests/test_memory_graph.py::test_query_memory_graph_returns_lightweight_semantic_recall` 先因 `embedding_model` 缺失失败。
+- RED：`tests/test_memory_context.py::test_generation_memory_context_includes_rule_based_recall` 先因上下文压缩丢失 embedding 字段失败。
+- RED：`tests/test_check_api_run_auth.py::test_validate_final_run_requires_semantic_recall_explanation_embedding_metadata` 先因脚本未校验样本级语义解释元信息失败。
+- GREEN：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_context.py -q` -> `14 passed`。
+- GREEN：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_check_api_run_auth.py -q` -> `15 passed`。
+- M5/LangGraph 相关回归：`D:\Anaconda\envs\ContentShare\python.exe -m pytest tests/test_memory_graph.py tests/test_memory_context.py tests/test_api_memory_graph.py tests/test_check_api_run_auth.py tests/test_generation_memory_context.py tests/test_strategy_memory_context.py tests/test_memory_node.py tests/test_langgraph_runtime.py tests/test_graph_run_events.py tests/test_api_langgraph_resume.py -q` -> `59 passed`。
+- 编译检查：`D:\Anaconda\envs\ContentShare\python.exe -m compileall app nodes scripts tests` -> exit code 0。
+- 全量测试：`D:\Anaconda\envs\ContentShare\python.exe -m pytest -q` -> `333 passed`。
+- 空白检查：`git diff --check` -> exit code 0，仅有 Windows 行尾提示。
+
+当前效果：
+- LangGraph 记忆召回链路中的 `semantic_recall` 解释项现在能同时说明“命中了哪条历史记录”和“使用哪个 embedding 模型、多少维、分数是多少”。
+- 生成节点拿到的 `memory_context.recall_explanations` 与原始 `graphrag_memory.recall_explanations` 在语义召回元信息上保持一致。
+- HTTP smoke 若采样到语义召回解释但缺少 embedding 元信息，会在脚本层失败，降低后续替换 provider 或向量索引时的静默降级风险。
+
+当前限制：
+- 本轮仍是项目内本地 hashing embedding 可观测性增强，不是外部 embedding 服务或独立向量数据库接入。
+- 本轮没有新增真实采集、真实发布或平台写入。
+- 远端同步仍受网络影响：`git push --verbose --porcelain origin master:codex/m5-rag-eligibility-recall` 提权后仍失败，错误为 `Recv failure: Connection was reset`；上一轮 `157212e` 和本轮后续提交需要网络恢复后继续推送。
+
+下一步建议：
+- 网络恢复后先同步当前分支到 `codex/m5-rag-eligibility-recall` 并用 `git ls-remote` 核验远端 SHA。
+- 继续 M5 时，可基于当前解释项和 smoke 质量门槛评估可选 embedding provider 或小型向量索引；阶段一收口仍优先 Cookie 失效提示、长期运行监控和告警。
+
 ## 2026-06-14 LangGraph M5 本地 embedding 召回可观测性增强
 
 本轮继续 M5 主线，并保持 LangGraph-first：不引入外部 embedding 服务、不新增向量库，而是在已经完成的 `local_hashing_embedding_v1` 本地 embedding 召回基础上，补齐 API summary 和 smoke 脚本的可观测性与质量门槛，方便后续替换 provider 或接入向量索引时复用同一套验收链路。

@@ -591,6 +591,9 @@ def _recall_explanations(
                 "reason": record.get("reason") or "",
                 "matched_terms": record.get("matched_terms") or [],
                 "matched_fields": record.get("matched_fields") or [],
+                "embedding_model": record.get("embedding_model") or "",
+                "embedding_dimensions": _safe_int(record.get("embedding_dimensions")),
+                "semantic_score": record.get("semantic_score") or 0,
             }
         )
     for risk in compliance_risks:

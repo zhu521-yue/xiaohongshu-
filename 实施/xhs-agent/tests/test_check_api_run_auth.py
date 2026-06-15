@@ -289,6 +289,35 @@ def test_validate_final_run_can_require_recall_explanation_type() -> None:
     ]
 
 
+def test_validate_final_run_requires_semantic_recall_explanation_embedding_metadata() -> None:
+    final = {
+        "status": "success",
+        "summary": {
+            "run_status": "waiting_review",
+            "memory_context_summary": {
+                "enabled": True,
+                "query": "小红书选题",
+                "graph_record_count": 3,
+                "recommended_content_type_count": 1,
+                "recall_evidence_count": 1,
+                "semantic_recall_count": 1,
+                "semantic_embedding_model": "local_hashing_embedding_v1",
+                "semantic_embedding_dimensions": 64,
+                "similar_experience_count": 0,
+                "historical_compliance_risk_count": 0,
+                "recall_explanation_count": 1,
+                "recall_explanations": [{"type": "semantic_recall"}],
+            },
+        },
+    }
+
+    assert check_api_run.validate_final_run(final, engine="langgraph") == [
+        "memory_context_summary.recall_explanations[0].embedding_model is required for semantic_recall",
+        "memory_context_summary.recall_explanations[0].embedding_dimensions must be positive for semantic_recall",
+        "memory_context_summary.recall_explanations[0].semantic_score must be a non-negative number for semantic_recall",
+    ]
+
+
 def test_validate_final_run_can_require_recall_explanation_type_from_full_state() -> None:
     final = {
         "status": "success",
