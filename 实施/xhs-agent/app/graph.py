@@ -33,6 +33,7 @@ from nodes.strategy_node import decide_content_strategy
 from nodes.video_node import generate_video_script
 from routers.compliance_router import route_compliance_result
 from routers.content_format_router import route_content_format
+from routers.content_type_router import route_content_type
 from routers.review_router import route_human_review
 
 
@@ -91,7 +92,24 @@ def run_local_graph(
             event_db_path=event_db_path,
         )
 
-    if state.get("content_format") == "video":
+    if state.get("content_type") == "soft_ad":
+        from nodes.product_node import select_product  # noqa: E402
+        from nodes.soft_ad_node import generate_soft_ad  # noqa: E402
+        state = _run_node(
+            state,
+            select_product,
+            node_name="select_product",
+            run_id=run_id,
+            event_db_path=event_db_path,
+        )
+        state = _run_node(
+            state,
+            generate_soft_ad,
+            node_name="generate_soft_ad",
+            run_id=run_id,
+            event_db_path=event_db_path,
+        )
+    elif state.get("content_format") == "video":
         state = _run_node(
             state,
             generate_video_script,
@@ -237,6 +255,13 @@ def build_langgraph(*, checkpointer=None):
     graph.add_node("decide_content_strategy", decide_content_strategy)
     graph.add_node("generate_image_text", generate_image_text)
     graph.add_node("generate_video_script", generate_video_script)
+
+    # Stage-2 soft-ad branch nodes (deferred import — created in Tasks 5 and 8)
+    from nodes.product_node import select_product  # noqa: E402
+    from nodes.soft_ad_node import generate_soft_ad  # noqa: E402
+    graph.add_node("select_product", select_product)
+    graph.add_node("generate_soft_ad", generate_soft_ad)
+
     graph.add_node("check_compliance", check_compliance)
     graph.add_node("refresh_graphrag_memory_after_compliance", refresh_graphrag_memory_after_compliance)
     graph.add_node("revise_content_for_compliance", revise_content_for_compliance)
@@ -255,13 +280,17 @@ def build_langgraph(*, checkpointer=None):
 
     graph.add_conditional_edges(
         "decide_content_strategy",
-        route_content_format,
+        route_content_type,
         {
+            "product_node": "select_product",
             "generate_image_text": "generate_image_text",
             "generate_video_script": "generate_video_script",
             "error_handler": END,
         },
     )
+
+    graph.add_edge("select_product", "generate_soft_ad")
+    graph.add_edge("generate_soft_ad", "check_compliance")
 
     graph.add_edge("generate_image_text", "check_compliance")
     graph.add_edge("generate_video_script", "check_compliance")
