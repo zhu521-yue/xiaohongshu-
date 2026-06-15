@@ -1,5 +1,5 @@
 {
-  "valid_content_types": ["knowledge_share", "experience_summary", "avoid_mistakes", "qa_education", "step_tutorial"],
+  "valid_content_types": ["knowledge_share", "experience_summary", "avoid_mistakes", "qa_education", "step_tutorial", "soft_ad"],
   "default_content_type": "knowledge_share",
   "structure_profiles": {
     "knowledge_share": {
@@ -106,6 +106,29 @@
       "page_texts": ["先抓主要问题", "{primary_pain}", "观察 → 判断 → 记录", "根据反馈继续调整"],
       "video_hook": "我把{topic}评论里的问题整理了一遍。",
       "video_points": ["先总结问题", "再讲判断顺序", "最后说复盘提醒"]
+    },
+    "soft_ad": {
+      "label": "好物分享",
+      "title_templates": [
+        "{topic}用到的一个好东西，先讲清楚再决定要不要试",
+        "关于{topic}，我最近试了一个思路",
+        "{primary_pain}，后来发现可以这样解决"
+      ],
+      "cover_main": "{topic}好物思路",
+      "cover_sub": "先看清楚再决定",
+      "body_heading": "评论里最集中的问题是：",
+      "soft_ad_heading": "我用到的一个东西帮了大忙：",
+      "action_heading": "建议你先按下面顺序判断：",
+      "action_steps": [
+        "先看自己的具体场景和问题是否对得上。",
+        "再去了解这个产品具体能做什么、不能做什么。",
+        "最后决定要不要试，不要因为种草盲买。"
+      ],
+      "page_titles": ["先讲问题", "解决方案", "产品思路", "理性提醒"],
+      "page_texts": ["先看真实问题", "{primary_pain}", "我是怎么用的", "别盲买，先判断"],
+      "video_hook": "如果你也在纠结{topic}，先别急着买，听我说完。",
+      "video_points": ["先讲清楚问题", "再讲我用什么的思路", "最后给出理性判断提醒"],
+      "ad_disclaimer": "本内容包含商业合作信息，请理性种草。"
     }
   }
 }
