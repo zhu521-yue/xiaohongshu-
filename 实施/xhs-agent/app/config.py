@@ -59,6 +59,21 @@ COLD_START_RULES = {
     "manual_review_required":True,
 }
 
+MONETIZATION_READY_RULES = {
+    "account_stage": "monetization_ready",
+    "allow_soft_ad": True,
+    "allowed_content_types": [
+        "knowledge_share",
+        "experience_summary",
+        "avoid_mistakes",
+        "qa_education",
+        "step_tutorial",
+        "soft_ad",
+    ],
+    "allowed_content_formats": ["image_text", "video"],
+    "manual_review_required": True,
+}
+
 
 def _env_float(name: str, default: float) -> float:
     try:
@@ -120,7 +135,9 @@ def load_settings() -> Settings:
         business_tables_enabled=_env_bool("XHS_AGENT_BUSINESS_TABLES_ENABLED", False),
     )
 
-def get_stage_rules(account_stage:str)->dict:
-    if account_stage != "cold_start":
-        raise ValueError(f"Unsupported account stage for M1: {account_stage}")
-    return COLD_START_RULES
+def get_stage_rules(account_stage: str) -> dict:
+    if account_stage == "cold_start":
+        return COLD_START_RULES
+    if account_stage == "monetization_ready":
+        return MONETIZATION_READY_RULES
+    raise ValueError(f"Unsupported account stage: {account_stage}")

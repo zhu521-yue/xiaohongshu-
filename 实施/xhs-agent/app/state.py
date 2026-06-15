@@ -75,6 +75,20 @@ class XHSState(TypedDict, total=False):
     product_selling_points: List[str]
     product_pain_match: List[Dict[str, Any]]
 
+    # 用户输入扩展（阶段二）
+    user_product_name: Optional[str]
+    user_product_selling_points: Optional[str]
+
+    # 阶段覆盖
+    stage_override: Optional[Literal["cold_start", "growth", "monetization_ready"]]
+
+    # 软广频率护栏
+    soft_ad_frequency_check: Optional[Dict[str, Any]]
+
+    # 达人/蒲公英相关
+    darwin_candidates: Optional[List[Dict[str, Any]]]
+    darwin_selected: Optional[Dict[str, Any]]
+
     # 内容结果
     titles: List[str]
     cover_texts: List[str]

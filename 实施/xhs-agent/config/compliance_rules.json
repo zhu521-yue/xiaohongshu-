@@ -3,5 +3,12 @@
   "sensitive_topics": ["宝宝", "湿疹", "过敏", "健康", "药", "治疗", "医生"],
   "disclaimer_words": ["经验分享", "仅作参考", "结合自身实际", "建议咨询", "不替代诊断", "专业人士"],
   "avoid_promise_words": ["爆款", "必火", "暴涨", "快速涨粉"],
-  "safety_note": "本内容仅作经验分享和信息整理，不替代专业诊断或治疗。涉及宝宝、健康、用药或症状加重时，请及时咨询医生或专业人士。"
+  "safety_note": "本内容仅作经验分享和信息整理，不替代专业诊断或治疗。涉及宝宝、健康、用药或症状加重时，请及时咨询医生或专业人士。",
+  "soft_ad_rules": {
+    "required_disclaimers": ["广告", "合作", "理性种草"],
+    "forbidden_soft_ad_words": ["根治", "必买", "必入", "神药", "秒杀一切"],
+    "forbidden_efficacy_claims": ["用完就", "一次就", "绝对有效"],
+    "weekly_limit": 2,
+    "no_back_to_back": true
+  }
 }
