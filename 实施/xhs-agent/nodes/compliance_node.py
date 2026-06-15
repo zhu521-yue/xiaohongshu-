@@ -25,12 +25,13 @@ def _content_text(state:XHSState)->str:
     return "\n".join(parts)
 
 # 审核逻辑
-def check_compliance(state:XHSState) -> dict:
+def check_compliance(state: XHSState) -> dict:
     text = _content_text(state)
     issues = []
+
     if state.get("account_stage") == "cold_start" and state.get("content_type") == "soft_ad":
         issues.append("冷启动阶段禁止生成或发布软广内容")
-    
+
     for word in ABSOLUTE_WORDS:
         if word in text:
             issues.append(f"内容中包含绝对词：{word}")
@@ -41,6 +42,35 @@ def check_compliance(state:XHSState) -> dict:
     if has_sensitive_topic and not has_disclaimer:
         issues.append("敏感主题缺少经验分享或风险提示")
 
+    # --- Stage 2: soft_ad specific compliance ---
+    if state.get("content_type") == "soft_ad":
+        rules = _COMPLIANCE_RULES.get("soft_ad_rules") or {}
+
+        # Check required disclaimers
+        required = rules.get("required_disclaimers") or []
+        found = [d for d in required if d in text]
+        if not found:
+            issues.append("软广内容缺少广告/合作标识")
+
+        # Check forbidden soft-ad words
+        forbidden = rules.get("forbidden_soft_ad_words") or []
+        for word in forbidden:
+            if word in text:
+                issues.append(f"软广内容包含禁止词：{word}")
+
+        # Check efficacy claims
+        efficacy = rules.get("forbidden_efficacy_claims") or []
+        for claim in efficacy:
+            if claim in text:
+                issues.append(f"软广内容包含功效承诺：{claim}")
+
+        # Check frequency guardrail (from strategy pre-check)
+        freq_check = state.get("soft_ad_frequency_check")
+        if isinstance(freq_check, dict) and not freq_check.get("allowed"):
+            for issue in freq_check.get("issues") or []:
+                issues.append(f"频率护栏：{issue}")
+    # --- End soft_ad compliance ---
+
     if not issues:
         risk_level = "low"
     elif any("禁止" in issue or "根治" in issue for issue in issues):
@@ -50,8 +80,8 @@ def check_compliance(state:XHSState) -> dict:
 
     return {
         "compliance_risk_level": risk_level,
-        "compliance_issues": issues, 
-        "revised_content": None, 
+        "compliance_issues": issues,
+        "revised_content": None,
     }
 
 
