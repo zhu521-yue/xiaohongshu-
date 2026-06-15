@@ -21,23 +21,41 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--engine",choices=("local","langgraph"),default="langgraph",help="流程运行引擎")
     parser.add_argument("--collect-limit", type=int, default=5, help="采集笔记数量上限")
     parser.add_argument("--save-collection", action="store_true", help="保存本次采集结果")
+    parser.add_argument(
+        "--stage",
+        choices=("cold_start", "growth", "monetization_ready"),
+        default=None,
+        dest="stage_override",
+        help="覆盖账号阶段（面试演示用）",
+    )
+    parser.add_argument("--product-name", default="", help="商品名称（阶段二软广用）")
+    parser.add_argument(
+        "--product-selling-points", default="", help="商品卖点描述（阶段二软广用）"
+    )
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
     runner = run_langgraph if args.engine == "langgraph" else run_local_graph
-    final_state = runner(
-        {
-            "user_topic": args.topic,
-            "target_user": args.target_user,
-            "user_selected_format": args.content_format,
-            "user_goal": args.goal,
-            "human_approved": args.approve,
-            "collect_limit": args.collect_limit,
-            "save_collection": args.save_collection,
-        }
-    )
+    initial_state: dict = {
+        "user_topic": args.topic,
+        "target_user": args.target_user,
+        "user_selected_format": args.content_format,
+        "user_goal": args.goal,
+        "human_approved": args.approve,
+        "collect_limit": args.collect_limit,
+        "save_collection": args.save_collection,
+    }
+
+    if args.stage_override:
+        initial_state["stage_override"] = args.stage_override
+
+    if args.product_name:
+        initial_state["user_product_name"] = args.product_name
+        initial_state["user_product_selling_points"] = args.product_selling_points
+
+    final_state = runner(initial_state)
 
     print("raw_notes_count:", len(final_state.get("raw_notes") or []))
     print("raw_comments_count:", len(final_state.get("raw_comments") or []))
