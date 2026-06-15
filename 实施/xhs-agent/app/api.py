@@ -316,6 +316,21 @@ def _event_db_path_for_settings(settings: Any) -> Path | None:
     return _resolve_project_path(settings.run_db_path)
 
 
+def _summarize_runtime(result: dict) -> dict:
+    return {
+        "ok": result.get("ok"),
+        "mode": result.get("mode"),
+        "error": result.get("error") if not result.get("ok") else None,
+    }
+
+
+def _summarize_guardrails() -> dict:
+    try:
+        return platform_guardrails.check_creator_publish_allowed()
+    except Exception as exc:
+        return {"allowed": False, "error": str(exc)}
+
+
 def _lifecycle_event_message(status: str) -> str:
     return {
         "queued": "run queued",
@@ -1568,7 +1583,12 @@ class XHSAgentAPIHandler(BaseHTTPRequestHandler):
             return
 
         if path == "/health":
-            self._send_json(200, {"ok": True, "service": "xhs-agent-api", "time": _now_iso()})
+            self._send_json(200, {
+                "status": "ok",
+                "collector": _summarize_runtime(collector_platform.check_collector_runtime()),
+                "creator": _summarize_runtime(creator_platform.check_creator_runtime()),
+                "guardrails": _summarize_guardrails(),
+            })
             return
 
         if path == "/runs":

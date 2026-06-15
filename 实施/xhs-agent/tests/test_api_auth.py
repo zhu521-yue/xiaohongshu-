@@ -145,7 +145,10 @@ def test_http_health_public_but_runs_protected(monkeypatch, tmp_path: Path) -> N
             pass
 
     assert health_status == 200
-    assert health_data["ok"] is True
+    assert health_data["status"] == "ok"
+    assert "collector" in health_data
+    assert "creator" in health_data
+    assert "guardrails" in health_data
     assert runs_status == 401
     assert runs_data == {"ok": False, "error": "Unauthorized"}
     assert authed_status == 200
